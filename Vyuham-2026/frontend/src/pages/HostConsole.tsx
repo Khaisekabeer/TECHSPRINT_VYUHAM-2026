@@ -44,11 +44,9 @@ export default function HostConsole() {
   };
 
   const loadQuestions = () => {
-    const url = import.meta.env.DEV ? `http://${window.location.hostname}:3001/api/admin/questions/seed` : '/api/admin/questions/seed';
-    fetch(url, { method: 'POST' }).then(() => {
-      socket.emit('host_action', 'load_questions', null, (res: any) => {
-        showToast(`✓ Loaded ${res.count} question${res.count !== 1 ? 's' : ''}`);
-      });
+    socket.emit('host_action', 'load_questions', null, (res: any) => {
+      if (res.error) showToast(res.error);
+      else showToast(`✓ Loaded ${res.count} question${res.count !== 1 ? 's' : ''}`);
     });
   };
 

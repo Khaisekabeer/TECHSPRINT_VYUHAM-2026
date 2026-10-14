@@ -4,7 +4,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
-const { db, seedDatabase, getAllQuestions } = require('./db');
+const db = require('./db');
 const gameEngine = require('./gameEngine');
 
 const app = express();
@@ -32,31 +32,7 @@ app.post('/api/admin/login', (req, res) => {
   }
 });
 
-app.get('/api/admin/questions', async (req, res) => {
-  try {
-    const questions = await getAllQuestions();
-    res.json(questions);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/admin/questions/seed', async (req, res) => {
-  const sampleQuestions = [
-    { level: 1, text: 'What does HTML stand for?', type: 'mcq', options: ['Hyper Text Markup Language', 'Hyperlinks and Text Markup Language', 'Home Tool Markup Language', 'Hyper Tool Markup Language'], correctAnswer: 'Hyper Text Markup Language', timeLimit: 20, points: 1000 },
-    { level: 1, text: 'CSS is used for styling web pages.', type: 'tf', options: ['True', 'False'], correctAnswer: 'True', timeLimit: 15, points: 1000 },
-    { level: 2, text: 'Which company developed React?', type: 'mcq', options: ['Google', 'Facebook (Meta)', 'Microsoft', 'Twitter'], correctAnswer: 'Facebook (Meta)', timeLimit: 20, points: 1000 },
-    { level: 3, text: 'What is the time complexity of binary search?', type: 'mcq', options: ['O(1)', 'O(n)', 'O(log n)', 'O(n^2)'], correctAnswer: 'O(log n)', timeLimit: 30, points: 1000 }
-  ];
-  try {
-    await seedDatabase(sampleQuestions);
-    const questions = await getAllQuestions();
-    gameEngine.setQuestions(questions);
-    res.json({ success: true, questions });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Questions live in Supabase; import them with `npm run seed` (reads ../seed_questions.json).
 
 // Real-time Socket.IO Handling
 io.on('connection', (socket) => {
@@ -93,34 +69,51 @@ io.on('connection', (socket) => {
     console.log('Host action:', action);
     switch (action) {
       case 'load_questions':
-        const qs = await getAllQuestions();
-        gameEngine.setQuestions(qs);
-        if (callback) callback({ success: true, count: qs.length });
+        try {
+          const qs = await db.getAllQuestions();
+          gameEngine.setQuestions(qs);
+          if (callback) callback({ success: true, count: qs.length });
+        } catch (err) {
+          console.error(err.message);
+          if (callback) callback({ error: 'Could not load questions from the database' });
+        }
         break;
       case 'start_game':
         gameEngine.startGame();
+        db.markGameStarted(gameEngine.gameId, gameEngine.getPlayersList());
         io.emit('game_state', gameEngine.getState());
         break;
       case 'start_question':
         gameEngine.startQuestion();
+        if (gameEngine.state === 'podium') {
+          db.finishGame(gameEngine.gameId, gameEngine.getPlayersList());
+        }
         io.emit('game_state', gameEngine.getState());
         break;
-      case 'end_question':
+      case 'end_question': {
+        const question = gameEngine.questions[gameEngine.currentQuestionIndex];
+        const answers = Object.values(gameEngine.answers).filter(a => a.participantId);
         const result = gameEngine.endQuestion();
+        db.saveQuestionResults(gameEngine.gameId, question?.id, answers, gameEngine.getPlayersList());
         io.emit('question_result', result);
         io.emit('players_list', gameEngine.getPlayersList());
         break;
-      case 'kick_player':
+      }
+      case 'kick_player': {
+        const kicked = gameEngine.players[data.socketId];
+        if (kicked && gameEngine.state !== 'lobby') db.deleteParticipant(kicked.participantId);
         gameEngine.removePlayer(data.socketId);
         io.sockets.sockets.get(data.socketId)?.disconnect();
         io.to('host').emit('players_list', gameEngine.getPlayersList());
         io.to('bigscreen').emit('players_list', gameEngine.getPlayersList());
         break;
+      }
       case 'drone_strike':
         io.emit('drone_strike', data); // random player bonus event
         break;
       case 'reset_game':
         gameEngine.reset();
+        db.createGame(gameEngine.gameId);
         io.emit('game_state', gameEngine.getState());
         io.emit('players_list', []);
         break;
@@ -165,9 +158,14 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, '0.0.0.0', async () => {
-  // Preload questions from DB
-  const qs = await getAllQuestions();
-  gameEngine.setQuestions(qs);
+  db.createGame(gameEngine.gameId);
+  try {
+    const qs = await db.getAllQuestions();
+    gameEngine.setQuestions(qs);
+    console.log(`Loaded ${qs.length} questions from Supabase`);
+  } catch (err) {
+    console.error(`${err.message} - use "Load Questions" in the host console to retry`);
+  }
   console.log(`Backend server running on http://0.0.0.0:${PORT}`);
   console.log('Use network IP to connect from mobile devices.');
 });

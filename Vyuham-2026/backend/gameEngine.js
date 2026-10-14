@@ -1,12 +1,15 @@
+const { randomUUID } = require('crypto');
+
 class GameEngine {
   constructor() {
+    this.questions = [];
     this.reset();
   }
 
   reset() {
+    this.gameId = randomUUID(); // games.id in Supabase
     this.state = 'lobby'; // lobby, intro, question, leaderboard, podium
-    this.players = {}; // socketId -> { id, name, score, streak, droneAssists, team, lastAnswerTime, totalResponseTime }
-    this.questions = [];
+    this.players = {}; // socketId -> { id, participantId, name, score, streak, droneAssists, team, totalResponseTime }
     this.currentQuestionIndex = -1;
     this.currentLevel = 1;
     this.questionStartTime = null;
@@ -30,6 +33,7 @@ class GameEngine {
 
     this.players[socketId] = {
       id: socketId,
+      participantId: randomUUID(), // participants.id in Supabase
       name,
       team,
       score: 0,
@@ -131,6 +135,7 @@ class GameEngine {
     }
 
     this.answers[socketId] = {
+      participantId: this.players[socketId]?.participantId,
       answer,
       time: timeTaken,
       isCorrect,
