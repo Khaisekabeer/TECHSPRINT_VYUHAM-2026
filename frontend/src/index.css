@@ -1,0 +1,459 @@
+@import "tailwindcss";
+/* Fonts are self-hosted via @fontsource imports in main.tsx (work without internet). */
+
+/* ════════════════════════════════════════════════════════════════════════════
+   VYUHAM '26 — "Chakravyuha war room"
+   Dark tactical surfaces, concentric-ring motif, heat that rises with each level.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --ink-0: #07080a;
+  --ink-1: #0e1014;
+  --ink-2: #151920;
+  --ink-3: #1d222b;
+  --line: rgba(237, 231, 218, 0.09);
+  --line-strong: rgba(237, 231, 218, 0.2);
+  --bone: #ede7da;
+  --bone-dim: #a39e93;
+  --bone-faint: #6b6860;
+
+  /* Level heat: Warm-up → Core Tech → Brain Burner */
+  --lvl-1: #3dd9eb;
+  --lvl-2: #ffb020;
+  --lvl-3: #ff4d3d;
+  --heat: var(--lvl-1);
+
+  /* Answer colours — identical on phones and the projector */
+  --opt-a: #3da9fc;
+  --opt-b: #ff5c8a;
+  --opt-c: #ffc531;
+  --opt-d: #3ddc97;
+
+  --good: #3ddc97;
+  --bad: #ff4d3d;
+
+  --font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
+  --font-body: 'Instrument Sans', system-ui, sans-serif;
+  --font-mono: 'Martian Mono', ui-monospace, monospace;
+
+  --radius: 6px;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-level="2"] { --heat: var(--lvl-2); }
+[data-level="3"] { --heat: var(--lvl-3); }
+
+[data-opt="0"] { --opt: var(--opt-a); }
+[data-opt="1"] { --opt: var(--opt-b); }
+[data-opt="2"] { --opt: var(--opt-c); }
+[data-opt="3"] { --opt: var(--opt-d); }
+
+* { box-sizing: border-box; }
+
+html, body { background: var(--ink-0); }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--bone);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection { background: var(--heat); color: var(--ink-0); }
+
+button { font-family: inherit; touch-action: manipulation; }
+
+:focus-visible {
+  outline: 2px solid var(--heat);
+  outline-offset: 3px;
+}
+
+/* ─── Stage: full-screen canvas with atmosphere ─────────────────────────────── */
+.stage {
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--heat) 16%, transparent), transparent 60%),
+    radial-gradient(80% 60% at 100% 110%, color-mix(in srgb, var(--heat) 7%, transparent), transparent 70%),
+    var(--ink-0);
+  transition: background 0.8s ease;
+}
+
+/* Film grain */
+.stage::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Faint tactical grid */
+.stage-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse at 50% 40%, black 10%, transparent 75%);
+  opacity: 0.6;
+}
+
+/* Concentric chakravyuha rings (see <Rings />) */
+.rings {
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  color: var(--heat);
+  aspect-ratio: 1;
+}
+.rings circle { fill: none; stroke: currentColor; }
+.rings .r-spin { transform-origin: center; animation: spin 90s linear infinite; }
+.rings .r-spin-rev { transform-origin: center; animation: spin 140s linear infinite reverse; }
+.rings .r-pulse { transform-origin: center; opacity: 0; animation: ring-pulse 4s var(--ease-out) infinite; }
+
+/* ─── Typography ───────────────────────────────────────────────────────────── */
+.display {
+  font-family: var(--font-display);
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 0.86;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.display-700 { font-weight: 700; }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 400;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.eyebrow-heat { color: var(--heat); }
+
+.mono { font-family: var(--font-mono); }
+.dim { color: var(--bone-dim); }
+.faint { color: var(--bone-faint); }
+.heat { color: var(--heat); }
+
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* ─── Brand mark ───────────────────────────────────────────────────────────── */
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.15rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.brand-mark {
+  width: 22px;
+  height: 22px;
+  color: var(--heat);
+  flex-shrink: 0;
+}
+.brand-year { color: var(--heat); }
+.brand-mark-lg { width: 44px; height: 44px; }
+
+/* ─── Surfaces ─────────────────────────────────────────────────────────────── */
+.panel {
+  position: relative;
+  background: color-mix(in srgb, var(--ink-1) 88%, transparent);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+}
+
+/* Corner brackets: a targeting-reticle detail */
+.bracketed { position: relative; }
+.bracketed::before,
+.bracketed::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-color: var(--heat);
+  border-style: solid;
+  pointer-events: none;
+}
+.bracketed::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+.bracketed::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+
+.rule { height: 1px; background: var(--line); border: 0; margin: 0; }
+
+/* ─── Buttons & fields ─────────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 15px 22px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.12s var(--ease-out), background 0.2s, border-color 0.2s, color 0.2s, box-shadow 0.2s;
+  user-select: none;
+}
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.btn-heat {
+  background: var(--heat);
+  color: var(--ink-0);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--heat) 50%, transparent);
+}
+.btn-heat:hover:not(:disabled) { box-shadow: 0 0 32px -4px color-mix(in srgb, var(--heat) 70%, transparent); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--bone);
+  border-color: var(--line-strong);
+}
+.btn-ghost:hover:not(:disabled) { border-color: var(--bone); }
+
+.btn-danger {
+  background: transparent;
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+}
+.btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 12%, transparent); }
+
+.btn-sm { padding: 7px 12px; font-size: 0.64rem; }
+.btn-lg { padding: 20px 28px; font-size: 0.85rem; }
+.btn-block { width: 100%; }
+
+.field {
+  width: 100%;
+  padding: 16px 18px;
+  background: var(--ink-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--bone);
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.field::placeholder { color: var(--bone-faint); }
+.field:focus {
+  border-color: var(--heat);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--heat) 15%, transparent);
+}
+
+.error-text {
+  margin: 0;
+  color: var(--bad);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* ─── Answer options (phone) ───────────────────────────────────────────────── */
+/* --opt comes from [data-opt] (set on each option); don't default it here or it would win the cascade */
+.opt-btn {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-height: 68px;
+  padding: 0;
+  background: var(--ink-1);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--bone);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform 0.12s var(--ease-out), border-color 0.2s, background 0.25s, opacity 0.3s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.opt-btn:hover:not(:disabled) { border-color: var(--opt); }
+.opt-btn:active:not(:disabled) { transform: scale(0.98); }
+.opt-btn:disabled { cursor: default; }
+
+.opt-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  flex-shrink: 0;
+  background: var(--opt);
+  color: var(--ink-0);
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.9rem;
+}
+.opt-text {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.35;
+}
+.opt-btn.selected {
+  background: var(--opt);
+  border-color: var(--opt);
+  color: var(--ink-0);
+}
+.opt-btn.selected .opt-label { background: color-mix(in srgb, var(--ink-0) 18%, transparent); }
+.opt-btn.selected .opt-text { font-weight: 700; }
+.opt-btn.faded { opacity: 0.28; }
+.opt-btn.removed { opacity: 0.12; }
+.opt-btn.removed .opt-text { text-decoration: line-through; }
+
+/* ─── Timer ring ───────────────────────────────────────────────────────────── */
+.timer {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.timer svg { position: absolute; inset: 0; transform: rotate(-90deg); overflow: visible; }
+.timer .track { stroke: var(--line-strong); }
+.timer .bar { stroke: var(--heat); transition: stroke-dashoffset 0.25s linear, stroke 0.3s; }
+.timer .count {
+  position: relative;
+  font-family: var(--font-display);
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.timer.urgent .bar { stroke: var(--bad); }
+.timer.urgent .count { color: var(--bad); animation: tick 1s steps(1) infinite; }
+
+/* ─── Chips & status ───────────────────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--ink-1);
+  color: var(--bone);
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.chip-heat { border-color: color-mix(in srgb, var(--heat) 50%, transparent); color: var(--heat); }
+.chip-gold { border-color: color-mix(in srgb, var(--opt-c) 55%, transparent); color: var(--opt-c); }
+button.chip { cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+button.chip:hover:not(:disabled) { border-color: var(--heat); }
+button.chip:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--bone-faint);
+  flex-shrink: 0;
+}
+.dot-live { background: var(--good); box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); animation: live 2s infinite; }
+.dot-off { background: var(--bad); }
+
+/* ─── Progress bar ─────────────────────────────────────────────────────────── */
+.meter {
+  height: 4px;
+  background: var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.meter > span {
+  display: block;
+  height: 100%;
+  background: var(--heat);
+  transition: width 0.4s var(--ease-out);
+}
+
+/* ─── Host console layout ──────────────────────────────────────────────────── */
+.host-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 18px;
+  align-items: start;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 22px clamp(16px, 3vw, 36px) 40px;
+}
+@media (max-width: 900px) {
+  .host-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ─── Toast ────────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  z-index: 100;
+  transform: translateX(-50%);
+  padding: 12px 18px;
+  background: var(--bone);
+  color: var(--ink-0);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  animation: toast-in 0.35s var(--ease-out);
+}
+
+/* ─── Motion ───────────────────────────────────────────────────────────────── */
+/* "backwards" hides elements until their delay passes, then releases transform so :active still works */
+.rise { animation: rise 0.7s var(--ease-out) backwards; animation-delay: var(--d, 0ms); }
+.pop { animation: pop 0.6s var(--ease-out) backwards; animation-delay: var(--d, 0ms); }
+.slam { animation: slam 0.8s var(--ease-out) backwards; animation-delay: var(--d, 0ms); }
+
+@keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+@keyframes pop { 0% { opacity: 0; transform: scale(0.6); } 60% { opacity: 1; transform: scale(1.06); } 100% { transform: scale(1); } }
+@keyframes slam { 0% { opacity: 0; transform: scale(1.5); letter-spacing: 0.2em; } 100% { opacity: 1; transform: none; } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes ring-pulse { 0% { opacity: 0.6; transform: scale(0.85); } 100% { opacity: 0; transform: scale(1.25); } }
+@keyframes tick { 50% { opacity: 0.45; } }
+@keyframes live { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 55%, transparent); } 70%, 100% { box-shadow: 0 0 0 7px transparent; } }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 12px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 6px; }

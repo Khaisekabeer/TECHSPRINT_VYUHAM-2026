@@ -32,6 +32,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
+    // The socket may have connected before these listeners were attached.
+    setIsConnected(socket.connected);
 
     return () => {
       socket.off('connect', onConnect);

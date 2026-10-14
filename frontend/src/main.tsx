@@ -1,6 +1,15 @@
-import React from 'react'
+﻿import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+// Self-hosted fonts: work on venue Wi-Fi without internet access
+import '@fontsource/big-shoulders-display/latin-700'
+import '@fontsource/big-shoulders-display/latin-900'
+import '@fontsource/martian-mono/latin-400'
+import '@fontsource/martian-mono/latin-600'
+import '@fontsource/instrument-sans/latin-400'
+import '@fontsource/instrument-sans/latin-500'
+import '@fontsource/instrument-sans/latin-600'
+import '@fontsource/instrument-sans/latin-700'
 import './index.css'
 
 import { SocketProvider } from './contexts/SocketContext'

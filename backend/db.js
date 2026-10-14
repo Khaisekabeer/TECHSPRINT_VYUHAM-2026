@@ -40,7 +40,7 @@ function toQuestion(row) {
 
 function toParticipantRow(gameId, p) {
   return {
-    id: p.participantId,
+    id: p.id,
     game_id: gameId,
     name: p.name,
     team: p.team || null,
@@ -65,15 +65,11 @@ async function getAllQuestions() {
   return data.map(toQuestion);
 }
 
-function createGame(gameId) {
-  return enqueue('createGame', () => supabase.from('games').insert({ id: gameId }));
-}
-
+// The game row is created when the host starts the game, so lobbies that never start leave no trace.
 function markGameStarted(gameId, players) {
   enqueue('markGameStarted', () => supabase
     .from('games')
-    .update({ status: 'running', started_at: new Date().toISOString() })
-    .eq('id', gameId));
+    .upsert({ id: gameId, status: 'running', started_at: new Date().toISOString() }));
   return saveParticipants(gameId, players);
 }
 
@@ -138,7 +134,6 @@ async function replaceQuestions(questions) {
 module.exports = {
   supabase,
   getAllQuestions,
-  createGame,
   markGameStarted,
   saveParticipants,
   saveQuestionResults,
