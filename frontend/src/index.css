@@ -2,46 +2,47 @@
 /* Fonts are self-hosted via @fontsource imports in main.tsx (work without internet). */
 
 /* ════════════════════════════════════════════════════════════════════════════
-   VYUHAM '26 — "Chakravyuha war room"
-   Dark tactical surfaces, concentric-ring motif, heat that rises with each level.
+   TECHSPRINT · Vyuham '26 — clean white, monochrome
+   White surfaces, near-black ink, concentric-ring motif in soft grey.
+   Colour is reserved for meaning: A–D answers and correct/wrong.
+   Token names: --ink-* are backgrounds/surfaces, --bone-* are text.
    ════════════════════════════════════════════════════════════════════════════ */
 
 :root {
-  --ink-0: #07080a;
-  --ink-1: #0e1014;
-  --ink-2: #151920;
-  --ink-3: #1d222b;
-  --line: rgba(237, 231, 218, 0.09);
-  --line-strong: rgba(237, 231, 218, 0.2);
-  --bone: #ede7da;
-  --bone-dim: #a39e93;
-  --bone-faint: #6b6860;
+  --ink-0: #ffffff;
+  --ink-1: #fafafa;
+  --ink-2: #f4f4f5;
+  --ink-3: #e7e7e9;
+  --line: rgba(10, 10, 10, 0.08);
+  --line-strong: rgba(10, 10, 10, 0.18);
+  --bone: #0a0a0a;
+  --bone-dim: #525252;
+  --bone-faint: #a3a3a3;
+  --ring: #d4d4d4;
 
-  /* Level heat: Warm-up → Core Tech → Brain Burner */
-  --lvl-1: #3dd9eb;
-  --lvl-2: #ffb020;
-  --lvl-3: #ff4d3d;
-  --heat: var(--lvl-1);
+  /* Single monochrome accent */
+  --heat: #0a0a0a;
 
   /* Answer colours — identical on phones and the projector */
   --opt-a: #3da9fc;
   --opt-b: #ff5c8a;
   --opt-c: #ffc531;
   --opt-d: #3ddc97;
+  --on-opt: #0a0a0a; /* text on an answer colour */
 
-  --good: #3ddc97;
-  --bad: #ff4d3d;
+  --good: #16a34a;
+  --bad: #dc2626;
 
   --font-display: 'Big Shoulders Display', 'Arial Narrow', sans-serif;
   --font-body: 'Instrument Sans', system-ui, sans-serif;
   --font-mono: 'Martian Mono', ui-monospace, monospace;
 
-  --radius: 6px;
+  --radius: 10px;
+  --shadow-sm: 0 1px 2px rgba(10, 10, 10, 0.05);
+  --shadow-md: 0 1px 2px rgba(10, 10, 10, 0.04), 0 8px 24px -10px rgba(10, 10, 10, 0.12);
+  --shadow-lg: 0 2px 4px rgba(10, 10, 10, 0.04), 0 24px 48px -16px rgba(10, 10, 10, 0.18);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-[data-level="2"] { --heat: var(--lvl-2); }
-[data-level="3"] { --heat: var(--lvl-3); }
 
 [data-opt="0"] { --opt: var(--opt-a); }
 [data-opt="1"] { --opt: var(--opt-b); }
@@ -79,23 +80,7 @@ button { font-family: inherit; touch-action: manipulation; }
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background:
-    radial-gradient(120% 70% at 50% -10%, color-mix(in srgb, var(--heat) 16%, transparent), transparent 60%),
-    radial-gradient(80% 60% at 100% 110%, color-mix(in srgb, var(--heat) 7%, transparent), transparent 70%),
-    var(--ink-0);
-  transition: background 0.8s ease;
-}
-
-/* Film grain */
-.stage::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  pointer-events: none;
-  opacity: 0.07;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background: var(--ink-0);
 }
 
 /* Faint tactical grid */
@@ -118,7 +103,7 @@ button { font-family: inherit; touch-action: manipulation; }
   position: absolute;
   z-index: -1;
   pointer-events: none;
-  color: var(--heat);
+  color: var(--ring);
   aspect-ratio: 1;
 }
 .rings circle { fill: none; stroke: currentColor; }
@@ -171,17 +156,27 @@ button { font-family: inherit; touch-action: manipulation; }
   color: var(--heat);
   flex-shrink: 0;
 }
-.brand-year { color: var(--heat); }
+.brand-event {
+  margin-left: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.5em;
+  letter-spacing: 0.18em;
+  color: var(--bone-dim);
+}
 .brand-mark-lg { width: 44px; height: 44px; }
 
 /* ─── Surfaces ─────────────────────────────────────────────────────────────── */
 .panel {
   position: relative;
-  background: color-mix(in srgb, var(--ink-1) 88%, transparent);
+  background: var(--ink-0);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-md);
 }
+.panel-lg { box-shadow: var(--shadow-lg); }
 
 /* Corner brackets: a targeting-reticle detail */
 .bracketed { position: relative; }
@@ -224,14 +219,18 @@ button { font-family: inherit; touch-action: manipulation; }
 .btn-heat {
   background: var(--heat);
   color: var(--ink-0);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--heat) 50%, transparent);
+  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.2), 0 6px 16px -8px rgba(10, 10, 10, 0.5);
 }
-.btn-heat:hover:not(:disabled) { box-shadow: 0 0 32px -4px color-mix(in srgb, var(--heat) 70%, transparent); }
+.btn-heat:hover:not(:disabled) {
+  background: #262626;
+  box-shadow: 0 1px 2px rgba(10, 10, 10, 0.2), 0 12px 24px -10px rgba(10, 10, 10, 0.55);
+}
 
 .btn-ghost {
-  background: transparent;
+  background: var(--ink-0);
   color: var(--bone);
   border-color: var(--line-strong);
+  box-shadow: var(--shadow-sm);
 }
 .btn-ghost:hover:not(:disabled) { border-color: var(--bone); }
 
@@ -249,9 +248,10 @@ button { font-family: inherit; touch-action: manipulation; }
 .field {
   width: 100%;
   padding: 16px 18px;
-  background: var(--ink-1);
+  background: var(--ink-0);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
   color: var(--bone);
   font-family: var(--font-body);
   font-size: 1.05rem;
@@ -280,18 +280,19 @@ button { font-family: inherit; touch-action: manipulation; }
   width: 100%;
   min-height: 68px;
   padding: 0;
-  background: var(--ink-1);
+  background: var(--ink-0);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
   color: var(--bone);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
-  transition: transform 0.12s var(--ease-out), border-color 0.2s, background 0.25s, opacity 0.3s;
+  transition: transform 0.12s var(--ease-out), border-color 0.2s, background 0.25s, box-shadow 0.2s, opacity 0.3s;
   user-select: none;
   -webkit-user-select: none;
 }
-.opt-btn:hover:not(:disabled) { border-color: var(--opt); }
+.opt-btn:hover:not(:disabled) { border-color: var(--opt); box-shadow: var(--shadow-lg); }
 .opt-btn:active:not(:disabled) { transform: scale(0.98); }
 .opt-btn:disabled { cursor: default; }
 
@@ -302,7 +303,7 @@ button { font-family: inherit; touch-action: manipulation; }
   width: 60px;
   flex-shrink: 0;
   background: var(--opt);
-  color: var(--ink-0);
+  color: var(--on-opt);
   font-family: var(--font-display);
   font-weight: 900;
   font-size: 1.9rem;
@@ -319,12 +320,13 @@ button { font-family: inherit; touch-action: manipulation; }
 .opt-btn.selected {
   background: var(--opt);
   border-color: var(--opt);
-  color: var(--ink-0);
+  color: var(--on-opt);
 }
-.opt-btn.selected .opt-label { background: color-mix(in srgb, var(--ink-0) 18%, transparent); }
+.opt-btn.selected .opt-label { background: color-mix(in srgb, var(--on-opt) 12%, transparent); }
 .opt-btn.selected .opt-text { font-weight: 700; }
-.opt-btn.faded { opacity: 0.28; }
-.opt-btn.removed { opacity: 0.12; }
+.opt-btn.selected { box-shadow: 0 0 0 3px color-mix(in srgb, var(--opt) 35%, transparent), var(--shadow-lg); }
+.opt-btn.faded { opacity: 0.3; box-shadow: none; }
+.opt-btn.removed { opacity: 0.14; box-shadow: none; }
 .opt-btn.removed .opt-text { text-decoration: line-through; }
 
 /* ─── Timer ring ───────────────────────────────────────────────────────────── */
@@ -336,7 +338,7 @@ button { font-family: inherit; touch-action: manipulation; }
   flex-shrink: 0;
 }
 .timer svg { position: absolute; inset: 0; transform: rotate(-90deg); overflow: visible; }
-.timer .track { stroke: var(--line-strong); }
+.timer .track { stroke: var(--line); }
 .timer .bar { stroke: var(--heat); transition: stroke-dashoffset 0.25s linear, stroke 0.3s; }
 .timer .count {
   position: relative;
@@ -356,7 +358,8 @@ button { font-family: inherit; touch-action: manipulation; }
   padding: 7px 12px;
   border: 1px solid var(--line-strong);
   border-radius: 999px;
-  background: var(--ink-1);
+  background: var(--ink-0);
+  box-shadow: var(--shadow-sm);
   color: var(--bone);
   font-family: var(--font-mono);
   font-size: 0.66rem;
@@ -364,7 +367,7 @@ button { font-family: inherit; touch-action: manipulation; }
   text-transform: uppercase;
 }
 .chip-heat { border-color: color-mix(in srgb, var(--heat) 50%, transparent); color: var(--heat); }
-.chip-gold { border-color: color-mix(in srgb, var(--opt-c) 55%, transparent); color: var(--opt-c); }
+.chip-gold { border-color: color-mix(in srgb, var(--opt-c) 70%, transparent); background: color-mix(in srgb, var(--opt-c) 18%, var(--ink-0)); color: #8a5a00; }
 button.chip { cursor: pointer; transition: border-color 0.2s, background 0.2s; }
 button.chip:hover:not(:disabled) { border-color: var(--heat); }
 button.chip:disabled { cursor: not-allowed; opacity: 0.4; }

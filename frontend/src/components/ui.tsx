@@ -1,4 +1,5 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import QRCode from 'qrcode';
 
 export const OPTION_LABELS = ['A', 'B', 'C', 'D'];
 
@@ -13,11 +14,13 @@ export function BrandMark({ className = 'brand-mark' }: { className?: string }) 
   );
 }
 
-export function Brand({ size }: { size?: string }) {
+// Program name first; the festival it belongs to as a small tag.
+export function Brand({ size, event = true }: { size?: string; event?: boolean }) {
   return (
     <span className="brand" style={size ? { fontSize: size } : undefined}>
       <BrandMark />
-      Vyuham <span className="brand-year">'26</span>
+      TechSprint
+      {event && <span className="brand-event">Vyuham '26</span>}
     </span>
   );
 }
@@ -59,6 +62,24 @@ export function TimerRing({ value, max, size = 56, stroke = 3, fontSize }: {
       </svg>
       <span className="count" style={{ fontSize: fontSize ?? `${size * 0.42}px` }}>{value}</span>
     </div>
+  );
+}
+
+// QR code generated locally (no internet needed), so players can scan instead of typing the address.
+export function QrCode({ value, size }: { value: string; size: number | string }) {
+  const [svg, setSvg] = useState('');
+  useEffect(() => {
+    QRCode.toString(value, { type: 'svg', margin: 0, errorCorrectionLevel: 'M', color: { dark: '#0a0a0a', light: '#ffffff' } })
+      .then(setSvg)
+      .catch(() => setSvg(''));
+  }, [value]);
+  return (
+    <div
+      role="img"
+      aria-label={`QR code for ${value}`}
+      style={{ width: size, height: size, flexShrink: 0 }}
+      dangerouslySetInnerHTML={{ __html: svg.replace('<svg', '<svg width="100%" height="100%"') }}
+    />
   );
 }
 

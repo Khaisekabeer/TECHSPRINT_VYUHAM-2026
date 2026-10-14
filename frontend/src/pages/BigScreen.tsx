@@ -1,7 +1,7 @@
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Brand, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
+import { Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — join now',
@@ -60,7 +60,7 @@ export default function BigScreen() {
   const phase = gameState?.state ?? 'lobby';
 
   return (
-    <div className="stage stage-grid" data-level={level} style={{ height: '100vh', minHeight: 0, ...(phase === 'podium' ? { ['--heat' as string]: 'var(--opt-c)' } : {}) }}>
+    <div className="stage stage-grid" data-level={level} style={{ height: '100vh', minHeight: 0 }}>
       {/* Top bar */}
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '22px 4vw', borderBottom: '1px solid var(--line)' }}>
         <Brand size="1.5rem" />
@@ -107,20 +107,23 @@ function Lobby({ joinAddress, players }: { joinAddress: string; players: any[] }
     <>
       <section style={{ flex: '1.15', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 4vw', position: 'relative', borderRight: '1px solid var(--line)' }}>
         <Rings size="120vh" style={{ top: '50%', left: '-78vh', transform: 'translateY(-50%)', opacity: 0.55 }} />
-        <Rise className="eyebrow eyebrow-heat" style={{ fontSize: '0.85rem' }}>TechSprint · Live quiz</Rise>
-        <Rise d={100} as="h1" className="display" style={{ fontSize: 'clamp(4rem, 8.5vw, 10rem)', margin: '2vh 0 4vh' }}>
-          Enter the<br /><span className="heat">Vyuham</span>
+        <Rise className="eyebrow eyebrow-heat" style={{ fontSize: '0.85rem' }}>Vyuham '26 · Live tech quiz</Rise>
+        <Rise d={100} as="h1" className="display" style={{ fontSize: 'clamp(4rem, 9vw, 11rem)', margin: '2vh 0 4vh' }}>
+          TechSprint
         </Rise>
 
-        <Rise d={220} className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: 14 }}>On your phone, open</Rise>
-        <Rise d={280} className="panel bracketed" style={{ alignSelf: 'flex-start', padding: '2.2vh 2.4vw' }}>
-          <span className="mono heat" style={{ fontSize: 'clamp(1.6rem, 3.2vw, 3.6rem)', fontWeight: 600, letterSpacing: '-0.02em' }}>
-            {joinAddress}
-          </span>
+        <Rise d={260} className="panel panel-lg bracketed" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '2.4vw', padding: '2.6vh 2.6vw 2.6vh 2.6vh' }}>
+          <QrCode value={`http://${joinAddress}`} size="24vh" />
+          <div>
+            <div className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: '1.4vh' }}>Scan, or open on your phone</div>
+            <span className="mono heat" style={{ fontSize: 'clamp(1.6rem, 2.8vw, 3.4rem)', fontWeight: 600, letterSpacing: '-0.02em' }}>
+              {joinAddress}
+            </span>
+          </div>
         </Rise>
 
         <Rise d={380} style={{ display: 'flex', gap: '3vw', marginTop: '5vh' }}>
-          {['Connect to the venue Wi-Fi', 'Open the address above', 'Enter your name'].map((step, i) => (
+          {['Connect to the venue Wi-Fi', 'Scan the code or type the address', 'Enter your name'].map((step, i) => (
             <div key={step} style={{ display: 'flex', gap: 12, alignItems: 'baseline' }}>
               <span className="display heat" style={{ fontSize: '2.2rem' }}>{i + 1}</span>
               <span className="dim" style={{ fontSize: '1.05rem', maxWidth: 160, lineHeight: 1.3 }}>{step}</span>
@@ -131,7 +134,7 @@ function Lobby({ joinAddress, players }: { joinAddress: string; players: any[] }
 
       <section style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '5vh 3.5vw', minWidth: 0 }}>
         <div style={{ marginBottom: '3vh' }}>
-          <div className="eyebrow" style={{ fontSize: '0.8rem' }}>In the formation</div>
+          <div className="eyebrow" style={{ fontSize: '0.8rem' }}>On the starting line</div>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 16 }}>
             <span className="display tabular heat" style={{ fontSize: 'clamp(5rem, 9vw, 9rem)', lineHeight: 0.9 }}>{players.length}</span>
             <span className="display display-700 dim" style={{ fontSize: '2rem' }}>{players.length === 1 ? 'player' : 'players'}</span>
@@ -213,12 +216,12 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
           <div key={idx} data-opt={idx} className="pop" style={{
             ['--d' as string]: `${200 + idx * 90}ms`,
             display: 'flex', alignItems: 'stretch', minHeight: '11vh', overflow: 'hidden',
-            background: 'var(--ink-1)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)',
+            background: 'var(--ink-0)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-md)',
             borderLeft: '0',
           }}>
             <span className="display" style={{
               width: '5.5vw', minWidth: 72, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--opt)', color: 'var(--ink-0)', fontSize: 'clamp(2.4rem, 3.4vw, 4rem)',
+              background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'clamp(2.4rem, 3.4vw, 4rem)',
             }}>{OPTION_LABELS[idx]}</span>
             <span style={{ display: 'flex', alignItems: 'center', padding: '0 1.8vw', fontSize: 'clamp(1.3rem, 2vw, 2.4rem)', fontWeight: 600 }}>{opt}</span>
           </div>
@@ -250,7 +253,7 @@ function Reveal({ result, players }: { result: any; players: any[] }) {
               <div key={option} data-opt={idx} className="rise" style={{ ['--d' as string]: `${200 + idx * 100}ms`, display: 'flex', alignItems: 'center', gap: 16, opacity: correct ? 1 : 0.45 }}>
                 <span className="display" style={{
                   width: 52, height: 52, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: 'var(--opt)', color: 'var(--ink-0)', fontSize: '2rem', borderRadius: 4,
+                  background: 'var(--opt)', color: 'var(--on-opt)', fontSize: '2rem', borderRadius: 4,
                 }}>{correct ? '✓' : OPTION_LABELS[idx]}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 8, fontSize: '1.15rem', fontWeight: 600 }}>
@@ -284,7 +287,8 @@ function Reveal({ result, players }: { result: any; players: any[] }) {
             <div key={p.id} className="rise" style={{
               ['--d' as string]: `${150 + idx * 70}ms`,
               display: 'flex', alignItems: 'center', gap: 20, padding: '1.4vh 1.4vw',
-              background: idx === 0 ? 'var(--heat)' : 'var(--ink-1)',
+              background: idx === 0 ? 'var(--heat)' : 'var(--ink-0)',
+              boxShadow: idx === 0 ? 'var(--shadow-lg)' : 'var(--shadow-sm)',
               color: idx === 0 ? 'var(--ink-0)' : 'var(--bone)',
               border: '1px solid', borderColor: idx === 0 ? 'var(--heat)' : 'var(--line)', borderRadius: 'var(--radius)',
             }}>
@@ -312,8 +316,8 @@ function Podium({ board }: { board: any[] }) {
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', padding: '4vh 4vw 0' }}>
       <Rings size="150vh" style={{ top: '100%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0.5 }} />
-      <Rise className="eyebrow eyebrow-heat" style={{ fontSize: '0.9rem' }}>Vyuham '26 · Final results</Rise>
-      <Rise d={100} as="h1" className="display" style={{ fontSize: 'clamp(3.5rem, 6vw, 7rem)', margin: '1vh 0 0' }}>The formation falls</Rise>
+      <Rise className="eyebrow eyebrow-heat" style={{ fontSize: '0.9rem' }}>TechSprint · Vyuham '26 · Final results</Rise>
+      <Rise d={100} as="h1" className="display" style={{ fontSize: 'clamp(3.5rem, 6vw, 7rem)', margin: '1vh 0 0' }}>Sprint champions</Rise>
 
       <div style={{ flex: 1, width: '100%', maxWidth: 1300, display: 'grid', gridTemplateColumns: '1fr 1.15fr 1fr', gap: '1.5vw', alignItems: 'end' }}>
         {slots.map(({ p, place, height, delay }) => (

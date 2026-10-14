@@ -182,7 +182,6 @@ export default function HostConsole() {
                     <span key={i} style={{
                       flex: 1, height: 6, borderRadius: 1,
                       background: live ? 'var(--heat)' : done ? 'color-mix(in srgb, var(--heat) 45%, transparent)' : 'var(--line)',
-                      boxShadow: live ? '0 0 12px var(--heat)' : undefined,
                     }} />
                   );
                 })}

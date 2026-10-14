@@ -60,7 +60,8 @@ async function getAllQuestions() {
     .eq('is_active', true)
     .order('level')
     .order('position')
-    .order('id');
+    .order('id')
+    .abortSignal(AbortSignal.timeout(10000)); // never leave the host waiting on a stalled request
   if (error) throw new Error(`Loading questions failed: ${error.message}`);
   return data.map(toQuestion);
 }
@@ -69,7 +70,7 @@ async function getAllQuestions() {
 function markGameStarted(gameId, players) {
   enqueue('markGameStarted', () => supabase
     .from('games')
-    .upsert({ id: gameId, status: 'running', started_at: new Date().toISOString() }));
+    .upsert({ id: gameId, name: "TechSprint · Vyuham '26", status: 'running', started_at: new Date().toISOString() }));
   return saveParticipants(gameId, players);
 }
 

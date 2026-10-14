@@ -150,17 +150,17 @@ export default function ParticipantView() {
       <div className="stage stage-grid" data-level="1">
         <Rings size="min(150vw, 760px)" style={{ top: '-16%', left: '50%', transform: 'translateX(-50%)' }} />
         <header style={{ ...screenPad, paddingTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Brand />
-          <span className="eyebrow">TechSprint</span>
+          <Brand event={false} />
+          <span className="eyebrow">Vyuham '26</span>
         </header>
 
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingBottom: 36 }}>
           <Rise d={60} className="eyebrow eyebrow-heat">● Live tech quiz</Rise>
           <Rise d={140} as="h1" className="display" style={{ fontSize: 'clamp(4.2rem, 23vw, 7rem)', margin: '14px 0 16px' }}>
-            Enter<br />the <span className="heat">Vyuham</span>
+            Tech<br />Sprint
           </Rise>
           <Rise d={240} as="p" className="dim" style={{ margin: '0 0 28px', fontSize: '1rem', lineHeight: 1.5 }}>
-            Three levels. Rising stakes. Answer fast — the formation only lets the quickest through.
+            Three levels. Rising stakes. Answer fast — the quickest minds take the lead.
           </Rise>
 
           <Rise d={340}>
@@ -193,7 +193,7 @@ export default function ParticipantView() {
         <Rings size="min(160vw, 720px)" style={centerRings} />
         <header style={{ ...screenPad, paddingTop: 22 }}><Brand /></header>
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-          <Rise className="eyebrow eyebrow-heat">You're in the formation</Rise>
+          <Rise className="eyebrow eyebrow-heat">You're on the starting line</Rise>
           <h1 className="display slam" style={{ fontSize: 'clamp(3.4rem, 18vw, 6rem)', margin: '16px 0 18px', overflowWrap: 'anywhere', ['--d' as string]: '120ms' }}>
             {playerInfo.name}
           </h1>
@@ -298,7 +298,7 @@ export default function ParticipantView() {
     const me = board[rank - 1];
     const medal = rank === 1 ? 'Champion' : rank === 2 ? 'Runner-up' : rank === 3 ? 'Third place' : 'Final standing';
     return (
-      <div className="stage stage-grid" data-level="2" style={rank > 0 && rank <= 3 ? { ['--heat' as string]: 'var(--opt-c)' } : undefined}>
+      <div className="stage stage-grid">
         <Rings size="min(170vw, 760px)" style={centerRings} />
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
           <Rise className="eyebrow eyebrow-heat">{medal}</Rise>
@@ -316,7 +316,7 @@ export default function ParticipantView() {
           ) : (
             <h1 className="display" style={{ fontSize: '4rem', marginTop: 12 }}>Game over</h1>
           )}
-          <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 32 }}>Thanks for playing Vyuham '26</Rise>
+          <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 32 }}>Thanks for playing TechSprint · Vyuham '26</Rise>
         </main>
       </div>
     );

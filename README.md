@@ -1,4 +1,6 @@
-﻿# Vyuham '26 TechQuiz
+﻿# TechSprint · Vyuham '26
+
+TechSprint is the live tech quiz of Vyuham '26.
 
 A real-time multiplayer quiz for live events: players answer on their phones, the quiz master runs the game from a host console, and a projector shows questions and standings. Built and load-tested for 150+ concurrent players.
 
