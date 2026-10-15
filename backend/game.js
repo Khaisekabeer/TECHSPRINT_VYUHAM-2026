@@ -251,9 +251,6 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       if (result.success) broadcastAnswerCount();
     });
 
-    handle(socket, 'use_drone', (callback) => {
-      callback(gameEngine.useDroneAssist(socket.id));
-    });
 
     socket.on('disconnect', () => {
       if (gameEngine.disconnect(socket.id)) {

@@ -46,7 +46,6 @@ function toParticipantRow(gameId, p) {
     team: p.team || null,
     score: p.score,
     streak: p.streak,
-    drone_assists: p.droneAssists,
     total_response_ms: p.totalResponseTime,
     final_rank: p.finalRank ?? null,
     ticket_id: p.ticketId ?? null,

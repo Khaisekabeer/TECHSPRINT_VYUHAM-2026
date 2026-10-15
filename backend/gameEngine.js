@@ -10,15 +10,6 @@ const LEVELS = {
   3: { multiplier: 3, name: 'Brain Burner', theme: 'red' },
 };
 
-function shuffle(items) {
-  const a = [...items];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
 // What other clients may see about a player (never the rejoin token).
 function publicPlayer(p) {
   return { id: p.id, name: p.name, team: p.team, score: p.score, streak: p.streak, connected: p.connected };
@@ -33,7 +24,7 @@ class GameEngine {
   reset() {
     this.gameId = randomUUID(); // games.id in Supabase
     this.state = 'lobby'; // lobby, intro, question, leaderboard, podium
-    // participantId -> { id, token, socketId, connected, name, team, score, streak, droneAssists, totalResponseTime }
+    // participantId -> { id, token, socketId, connected, name, team, score, streak, totalResponseTime }
     this.players = {};
     this.tokens = {};  // rejoin token -> participantId
     this.sockets = {}; // socketId -> participantId
@@ -42,7 +33,6 @@ class GameEngine {
     this.questionStartTime = null;
     this.questionEndsAt = null;
     this.answers = {};    // participantId -> { participantId, answer, time, isCorrect, pointsEarned, badge }
-    this.droneUsed = {};  // participantId -> true, for the current question
     this.firstBloodAwarded = false;
     this.lastResult = null; // reveal data for the last question, resent to screens that (re)connect
   }
@@ -85,7 +75,6 @@ class GameEngine {
       team,
       score: 0,
       streak: 0,
-      droneAssists: 2,
       totalResponseTime: 0,
     };
     this.players[player.id] = player;
@@ -136,7 +125,7 @@ class GameEngine {
 
   // What a player may see about themselves.
   privateView(player) {
-    return { ...publicPlayer(player), droneAssists: player.droneAssists };
+    return publicPlayer(player);
   }
 
   // The player's result for the current/last question, used to restore their screen on rejoin.
@@ -189,7 +178,6 @@ class GameEngine {
     this.questionStartTime = Date.now();
     this.questionEndsAt = this.questionStartTime + (q.timeLimit || 20) * 1000;
     this.answers = {};
-    this.droneUsed = {};
     this.firstBloodAwarded = false;
     return { success: true };
   }
@@ -256,23 +244,6 @@ class GameEngine {
     return Object.keys(this.answers).length;
   }
 
-  useDroneAssist(socketId) {
-    const player = this.playerBySocket(socketId);
-    if (!player) return { error: 'You are not in this game' };
-    if (this.state !== 'question') return { error: 'Can only use during a question' };
-    if (player.droneAssists <= 0) return { error: 'No 50/50 lifelines left' };
-    if (this.droneUsed[player.id]) return { error: 'Already used on this question' };
-    if (this.answers[player.id]) return { error: 'Already answered' };
-
-    const q = this.currentQuestion();
-    if (q.type !== 'mcq') return { error: '50/50 only works on multiple-choice questions' };
-
-    player.droneAssists -= 1;
-    this.droneUsed[player.id] = true;
-    const correct = String(q.correctAnswer).toLowerCase();
-    const removedOptions = shuffle(q.options.filter(o => o.toLowerCase() !== correct)).slice(0, 2);
-    return { success: true, removedOptions, droneAssists: player.droneAssists };
-  }
 
   // Returns null if no question is live (guards against the auto-timer and host both ending it).
   endQuestion() {

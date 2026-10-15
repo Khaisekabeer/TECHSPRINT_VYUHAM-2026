@@ -79,7 +79,6 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   rogue.emit('submit_answer', null);           // no callback, bad payload
   rogue.emit('join_game');                     // no data
   rogue.emit('host_action', 'reset_game');     // not a host
-  rogue.emit('use_drone');
   await wait(300);
   rogue.disconnect();
 

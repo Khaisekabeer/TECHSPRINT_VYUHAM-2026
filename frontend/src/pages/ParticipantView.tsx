@@ -27,7 +27,6 @@ export default function ParticipantView() {
   const [playerInfo, setPlayerInfo] = useState<any>(null);
   const [answerResult, setAnswerResult] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
-  const [removedOptions, setRemovedOptions] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [rejoining, setRejoining] = useState(() => !!storage.get());
   const questionIndexRef = useRef<number | null>(null);
@@ -46,7 +45,6 @@ export default function ParticipantView() {
       questionIndexRef.current = state.currentQuestionIndex;
       setSelectedOption(null);
       setAnswerResult(null);
-      setRemovedOptions([]);
       setMessage('');
     }
   };
@@ -142,17 +140,6 @@ export default function ParticipantView() {
     });
   };
 
-  const useDrone = () => {
-    if ((playerInfo?.droneAssists ?? 0) <= 0) return;
-    socket.emit('use_drone', (res: any) => {
-      if (res.success) {
-        setPlayerInfo((prev: any) => ({ ...prev, droneAssists: res.droneAssists }));
-        setRemovedOptions(res.removedOptions);
-      } else {
-        setMessage(res.error);
-      }
-    });
-  };
 
   // ─── Connecting ────────────────────────────────────────────────────────────
   if (!isConnected || rejoining) {
@@ -238,9 +225,6 @@ export default function ParticipantView() {
           <Rise d={300} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
             Waiting for the host to begin.<br />Keep your eyes on the big screen.
           </Rise>
-          <Rise d={420} style={{ marginTop: 36 }}>
-            <span className="chip">½ 50/50 lifelines × {playerInfo.droneAssists}</span>
-          </Rise>
         </main>
       </div>
     );
@@ -288,11 +272,9 @@ export default function ParticipantView() {
           <div style={{ flex: 1, maxHeight: 560, display: 'grid', gridAutoRows: 'minmax(68px, 1fr)', gap: 10 }}>
             {q?.options?.map((opt: string, idx: number) => {
               const isSelected = selectedOption === opt;
-              const isRemoved = removedOptions.includes(opt);
-              const isDisabled = selectedOption !== null || isRemoved || timeUp;
+              const isDisabled = selectedOption !== null || timeUp;
               let cls = 'opt-btn pop';
               if (isSelected) cls += ' selected';
-              else if (isRemoved) cls += ' removed';
               else if (isDisabled) cls += ' faded';
               return (
                 <button
@@ -313,11 +295,6 @@ export default function ParticipantView() {
           {message && <p role="alert" className="error-text" style={{ marginTop: 14 }}>{message}</p>}
 
           <div style={{ marginTop: 'auto', paddingTop: 20, textAlign: 'center' }}>
-            {!selectedOption && !timeUp && q?.type === 'mcq' && removedOptions.length === 0 && (
-              <button className="chip" onClick={useDrone} disabled={(playerInfo?.droneAssists ?? 0) <= 0}>
-                ½ Use 50/50 · {playerInfo?.droneAssists ?? 0} left
-              </button>
-            )}
             {(selectedOption || timeUp) && (
               <p className="eyebrow" style={{ margin: 0 }}>
                 {selectedOption ? '● Answer locked in — awaiting reveal' : "Time's up — awaiting reveal"}
