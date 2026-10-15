@@ -11,6 +11,7 @@ const db = require('./db');
 const store = require('./store');
 const auth = require('./auth');
 const createApi = require('./api');
+const questionKeys = require('./questionKeys');
 const gameEngine = require('./gameEngine');
 const { ANSWER_GRACE_MS } = gameEngine;
 
@@ -61,15 +62,38 @@ async function loadSettings() {
   settings.requireCheckin = s.require_checkin !== false;
 }
 
+// ─── Questions in the game ────────────────────────────────────────────────────
+// The bank is encrypted; questions reach the game only when a quiz master (PIN unlocked) loads
+// them. They are then held decrypted in this process's memory only.
+let questionsLoaded = null; // { count, by, at }
+
+async function loadQuestionsIntoGame(dek, staff) {
+  if (gameEngine.state !== 'lobby') return { error: 'Questions can only be loaded while the game is in the lobby' };
+  const qs = await questionKeys.loadGameQuestions(dek);
+  gameEngine.setQuestions(qs);
+  questionsLoaded = { count: qs.length, by: staff.displayName, at: Date.now() };
+  console.log(`${staff.displayName} loaded ${qs.length} questions into the game`);
+  broadcastState();
+  io.to('host').to('monitor').emit('questions_loaded', questionsLoaded);
+  return { success: true, ...questionsLoaded };
+}
+
 // ─── Staff API ────────────────────────────────────────────────────────────────
 app.use('/api', createApi({
-  onQuestionsChanged() {
-    // Questions can change freely in the lobby; during a game the running list is kept.
-    if (gameEngine.state !== 'lobby') return;
-    db.getAllQuestions()
-      .then(qs => { gameEngine.setQuestions(qs); broadcastState(); })
+  onQuestionsChanged(dek) {
+    // Edits in the lobby refresh questions that were already loaded; a running game keeps its list.
+    if (gameEngine.state !== 'lobby' || !questionsLoaded) return;
+    questionKeys.loadGameQuestions(dek)
+      .then(qs => {
+        gameEngine.setQuestions(qs);
+        questionsLoaded = { ...questionsLoaded, count: qs.length, at: Date.now() };
+        broadcastState();
+        io.to('host').to('monitor').emit('questions_loaded', questionsLoaded);
+      })
       .catch(err => console.error(err.message));
   },
+  loadQuestionsIntoGame,
+  gameQuestionsStatus: () => ({ state: gameEngine.state, ...(questionsLoaded || { count: 0 }) }),
   onSettingsChanged(next) {
     Object.assign(settings, next);
     io.emit('config', publicConfig());
@@ -85,8 +109,8 @@ app.get('/api/config', (req, res) => res.json(publicConfig()));
 
 // ─── Broadcast helpers ────────────────────────────────────────────────────────
 const broadcastState = () => io.emit('game_state', gameEngine.getState());
-const broadcastPlayers = () => io.to('host').to('bigscreen').emit('players_list', gameEngine.getPlayersList());
-const broadcastAnswerCount = () => io.to('host').to('bigscreen').emit('answer_count', {
+const broadcastPlayers = () => io.to('host').to('bigscreen').to('monitor').emit('players_list', gameEngine.getPlayersList());
+const broadcastAnswerCount = () => io.to('host').to('bigscreen').to('monitor').emit('answer_count', {
   answered: gameEngine.answeredCount(),
   total: gameEngine.connectedCount(),
 });
@@ -128,17 +152,11 @@ function handle(socket, event, handler) {
 }
 
 const hostActions = {
-  async load_questions(callback) {
-    if (gameEngine.state !== 'lobby') return callback({ error: 'Questions can only be loaded in the lobby' });
-    try {
-      const qs = await db.getAllQuestions();
-      gameEngine.setQuestions(qs);
-      broadcastState();
-      callback({ success: true, count: qs.length });
-    } catch (err) {
-      console.error(err.message);
-      callback({ error: 'Could not load questions from the database' });
-    }
+  // Questions are encrypted; only the quiz master can load them (Admin → Questions).
+  load_questions(callback) {
+    callback(questionsLoaded
+      ? { success: true, ...questionsLoaded }
+      : { error: 'Questions are loaded by the quiz master (Admin → Questions → Load into game)' });
   },
 
   start_game(callback) {
@@ -189,16 +207,17 @@ const hostActions = {
 };
 
 io.on('connection', (socket) => {
-  // Host console (quiz master or coordinator staff session) and the projector screen.
+  // Host console (coordinator/admin), read-only live monitor (any staff), projector screen.
   handle(socket, 'join_role', async (callback, role, token) => {
-    if (role === 'host') {
+    if (role === 'host' || role === 'monitor') {
       const session = await auth.getSession(token);
       if (!session) return callback({ error: 'Session expired - please sign in again' });
-      if (!['quizmaster', 'coordinator'].includes(session.staff.role)) {
-        return callback({ error: 'Only the quiz master or a coordinator can run the game' });
+      if (role === 'host' && !['coordinator', 'admin'].includes(session.staff.role)) {
+        return callback({ error: 'Only a coordinator or admin can conduct the live event' });
       }
-      socket.data.isHost = true;
+      socket.data.isHost = role === 'host';
       socket.data.staff = session.staff;
+      socket.emit('questions_loaded', questionsLoaded || { count: 0 });
     } else if (role !== 'bigscreen') {
       return callback({ error: 'Unknown role' });
     }
@@ -316,19 +335,14 @@ const PORT = Number(process.env.PORT) || 3001;
 server.listen(PORT, '0.0.0.0', async () => {
   const scheme = useHttps ? 'https' : 'http';
   try {
-    await auth.ensureBootstrapCoordinator();
+    await auth.ensureBootstrapAdmin();
     await loadSettings();
     store.deleteExpiredSessions().catch(() => {});
   } catch (err) {
     console.error(`Staff/settings setup failed: ${err.message}`);
   }
-  try {
-    const qs = await db.getAllQuestions();
-    gameEngine.setQuestions(qs);
-    console.log(`Loaded ${qs.length} questions from Supabase`);
-  } catch (err) {
-    console.error(`${err.message} - use "Reload questions" in the host console to retry`);
-  }
+  if (!process.env.QUESTION_VAULT_SECRET) console.error('QUESTION_VAULT_SECRET is not set - the question bank cannot be unlocked');
+  console.log('Question bank is encrypted: the quiz master loads questions via Admin → Questions → Load into game');
   console.log(`Server running on ${scheme}://0.0.0.0:${PORT}  (check-in required to play: ${settings.requireCheckin})`);
   for (const ip of lanAddresses()) console.log(`  Network: ${scheme}://${ip}:${PORT}`);
 });

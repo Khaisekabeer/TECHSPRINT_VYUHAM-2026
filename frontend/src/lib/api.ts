@@ -3,15 +3,19 @@
 // Dev: the API runs on :3001 next to the Vite server. Production: same origin.
 export const API_BASE = import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:3001` : '';
 
-export type Role = 'coordinator' | 'quizmaster' | 'volunteer';
+export type Role = 'admin' | 'quizmaster' | 'coordinator' | 'volunteer';
 export interface Staff { id: string; username: string; displayName: string; role: Role }
 export interface StaffSession { token: string; staff: Staff }
 
 export const ROLE_LABEL: Record<Role, string> = {
-  coordinator: 'Coordinator',
+  admin: 'Admin',
   quizmaster: 'Quiz master',
+  coordinator: 'Coordinator',
   volunteer: 'Volunteer',
 };
+
+// Who may conduct the live event from the host console.
+export const CAN_HOST: Role[] = ['admin', 'coordinator'];
 
 const KEY = 'techsprint_staff';
 const SESSION_EVENT = 'techsprint-session';

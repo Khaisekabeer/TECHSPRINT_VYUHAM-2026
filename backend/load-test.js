@@ -1,5 +1,9 @@
 // Plays a full game against a running server with simulated players.
-// Usage: node load-test.js [players]     env: SERVER_URL (default http://localhost:3001)
+// Usage: node load-test.js [players]
+//   env SERVER_URL         default http://localhost:3001
+//       LOADTEST_USER / LOADTEST_PASSWORD           an admin or coordinator (runs the game)
+//       LOADTEST_QM_USER / LOADTEST_QM_PASSWORD / LOADTEST_QM_PIN
+//                          a quiz master; if set, unlocks the encrypted bank and loads questions
 // Note: results are saved to Supabase like a real game; run it against a test project
 // or delete the game rows afterwards.
 require('dotenv').config({ quiet: true });
@@ -24,12 +28,14 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
 (async () => {
   console.log(`Load test: ${PLAYERS} players against ${SERVER}`);
 
-  // Signs in as the bootstrap coordinator ("admin"); override with LOADTEST_USER / LOADTEST_PASSWORD.
-  const login = await fetch(`${SERVER}/api/auth/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: process.env.LOADTEST_USER || 'admin', password: process.env.LOADTEST_PASSWORD || PASSWORD }),
+  const post = (path, body, token) => fetch(`${SERVER}/api${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify(body || {}),
   }).then(r => r.json());
-  if (!login.token) throw new Error('Staff login failed - set LOADTEST_USER / LOADTEST_PASSWORD');
+
+  const login = await post('/auth/login', { username: process.env.LOADTEST_USER || 'admin', password: process.env.LOADTEST_PASSWORD || PASSWORD });
+  if (!login.token) throw new Error('Staff login failed - set LOADTEST_USER / LOADTEST_PASSWORD (admin or coordinator)');
 
   // With check-in required, players need admitted tickets: seed LTTEST0000… as checked in.
   const { requireCheckin } = await fetch(`${SERVER}/api/config`).then(r => r.json());
@@ -54,7 +60,18 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   };
   if ((await ask(host, 'join_role', 'host', login.token)).error) throw new Error('Host join failed');
   await hostAction('reset_game');
-  const { count } = await hostAction('load_questions');
+
+  // The bank is encrypted: a quiz master unlocks it with their PIN and loads the questions.
+  if (process.env.LOADTEST_QM_USER) {
+    const qm = await post('/auth/login', { username: process.env.LOADTEST_QM_USER, password: process.env.LOADTEST_QM_PASSWORD });
+    if (!qm.token) throw new Error('Quiz master login failed');
+    const unlocked = await post('/auth/vault', { pin: process.env.LOADTEST_QM_PIN }, qm.token);
+    if (!unlocked.vaultUntil) throw new Error(`Unlock failed: ${unlocked.error}`);
+    const loaded = await post('/game/load-questions', {}, qm.token);
+    if (!loaded.success) throw new Error(`Loading questions failed: ${loaded.error}`);
+    await post('/auth/logout', {}, qm.token);
+  }
+  const { count } = await hostAction('load_questions'); // reports what is loaded
   console.log(`Questions loaded: ${count}`);
 
   // Robustness: malformed messages must not crash the server.

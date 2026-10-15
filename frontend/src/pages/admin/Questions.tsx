@@ -20,6 +20,7 @@ const blank = (level: number): Draft => ({
 export default function Questions() {
   const [vaultUntil, setVaultUntil] = useState<number | null>(null);
   const [checked, setChecked] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
 
   useEffect(() => {
     api('/auth/me').then(r => setVaultUntil(r.vaultUntil)).catch(() => {}).finally(() => setChecked(true));
@@ -33,13 +34,18 @@ export default function Questions() {
   }, [vaultUntil]);
 
   if (!checked) return null;
-  if (!vaultUntil || vaultUntil <= Date.now()) return <VaultLock onUnlock={setVaultUntil} />;
-  return <QuestionBank vaultUntil={vaultUntil} onLocked={() => setVaultUntil(null)} />;
+  if (recoveryCode) return <RecoveryCodeNotice code={recoveryCode} onDone={() => setRecoveryCode(null)} />;
+  if (!vaultUntil || vaultUntil <= Date.now()) {
+    return <VaultLock onUnlock={(until, code) => { setVaultUntil(until); if (code) setRecoveryCode(code); }} />;
+  }
+  return <QuestionBank vaultUntil={vaultUntil} onLocked={() => setVaultUntil(null)} onRecoveryCode={setRecoveryCode} />;
 }
 
-// ─── Second sign-in: quiz master PIN ──────────────────────────────────────────
-function VaultLock({ onUnlock }: { onUnlock: (until: number) => void }) {
+// ─── Second sign-in: quiz master PIN (decrypts the bank's key on the server) ──
+function VaultLock({ onUnlock }: { onUnlock: (until: number, recoveryCode?: string) => void }) {
   const [pin, setPin] = useState('');
+  const [recovery, setRecovery] = useState('');
+  const [needsRecovery, setNeedsRecovery] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -48,37 +54,120 @@ function VaultLock({ onUnlock }: { onUnlock: (until: number) => void }) {
     setBusy(true);
     setError('');
     try {
-      const r = await api('/auth/vault', { method: 'POST', body: { pin } });
-      onUnlock(r.vaultUntil);
-    } catch (err: any) {
-      setError(err.message);
-      setPin('');
+      const r = needsRecovery
+        ? await api('/auth/vault/recover', { method: 'POST', body: { pin, recoveryCode: recovery } })
+        : await api('/auth/vault', { method: 'POST', body: { pin } });
+      onUnlock(r.vaultUntil, r.recoveryCode);
+    } catch (err) {
+      if (err instanceof ApiError && err.data?.needsGrant) setNeedsRecovery(true);
+      setError((err as Error).message);
+      if (!(err instanceof ApiError && err.data?.needsGrant)) setPin('');
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Panel bracketed className="panel-lg" style={{ maxWidth: 420, margin: '24px auto', padding: '34px 30px', textAlign: 'center' }}>
+    <Panel bracketed className="panel-lg" style={{ maxWidth: 440, margin: '24px auto', padding: '34px 30px', textAlign: 'center' }}>
       <div style={{ fontSize: '2rem' }} aria-hidden="true">🔒</div>
-      <div className="eyebrow" style={{ marginTop: 10 }}>Confidential</div>
+      <div className="eyebrow" style={{ marginTop: 10 }}>Encrypted · quiz master only</div>
       <h2 className="display" style={{ fontSize: '2.6rem', margin: '8px 0 8px' }}>Question bank</h2>
       <p className="dim" style={{ margin: '0 0 22px', fontSize: '0.9rem', lineHeight: 1.5 }}>
-        Enter your quiz master PIN. The bank re-locks automatically after 30 minutes.
+        Questions are stored encrypted. Your PIN unlocks them for 30 minutes on this session.
       </p>
       <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <input className="field" type="password" inputMode="numeric" autoComplete="one-time-code" value={pin}
           onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} aria-label="PIN" autoFocus
           style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '1.6rem', letterSpacing: '0.5em' }} />
-        <button className="btn btn-heat btn-block" disabled={busy || pin.length < 4}>{busy ? 'Checking…' : 'Unlock'}</button>
+        {needsRecovery && (
+          <>
+            <label className="eyebrow" htmlFor="recovery" style={{ textAlign: 'left', marginTop: 6 }}>Recovery code</label>
+            <input id="recovery" className="field" value={recovery} onChange={e => setRecovery(e.target.value.toUpperCase())}
+              placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autoComplete="off" spellCheck={false}
+              style={{ fontFamily: 'var(--font-mono)', textAlign: 'center', fontSize: '0.95rem' }} />
+          </>
+        )}
+        <button className="btn btn-heat btn-block" disabled={busy || pin.length < 4 || (needsRecovery && recovery.replace(/[^A-Z0-9]/g, '').length < 24)}>
+          {busy ? 'Checking…' : needsRecovery ? 'Unlock with recovery code' : 'Unlock'}
+        </button>
         {error && <p role="alert" className="error-text">{error}</p>}
+        {!needsRecovery && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setNeedsRecovery(true)} style={{ alignSelf: 'center' }}>
+            Use recovery code
+          </button>
+        )}
       </form>
     </Panel>
   );
 }
 
+// Shown exactly once, when the question bank is encrypted for the first time.
+function RecoveryCodeNotice({ code, onDone }: { code: string; onDone: () => void }) {
+  const [saved, setSaved] = useState(false);
+  return (
+    <Panel bracketed className="panel-lg" style={{ maxWidth: 520, margin: '24px auto', padding: '34px 30px', textAlign: 'center' }}>
+      <div className="eyebrow">Question bank encrypted</div>
+      <h2 className="display" style={{ fontSize: '2.4rem', margin: '10px 0 10px' }}>Save your recovery code</h2>
+      <p className="dim" style={{ margin: '0 0 20px', fontSize: '0.92rem', lineHeight: 1.55 }}>
+        If every quiz master's PIN is lost or reset, this code is the <strong>only</strong> way to decrypt the questions.
+        Write it down and keep it somewhere safe. It will not be shown again.
+      </p>
+      <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.06em', padding: '18px 12px', border: '2px dashed var(--line-strong)', borderRadius: 'var(--radius)', userSelect: 'all', wordBreak: 'break-all' }}>
+        {code}
+      </div>
+      <label style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', margin: '20px 0 16px', fontSize: '0.9rem' }}>
+        <input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)} style={{ width: 18, height: 18 }} />
+        I have saved the recovery code
+      </label>
+      <button className="btn btn-heat btn-block" disabled={!saved} onClick={onDone}>Continue to the question bank</button>
+    </Panel>
+  );
+}
+
+// ─── Load into game: the only way questions reach the live event ──────────────
+function LoadIntoGame({ guard, refreshKey }: { guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>; refreshKey: number }) {
+  const [status, setStatus] = useState<{ state: string; count: number; by?: string; at?: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const refresh = useCallback(() => { api('/game/questions-status').then(setStatus).catch(() => {}); }, []);
+  useEffect(() => { refresh(); }, [refresh, refreshKey]);
+
+  const load = async () => {
+    setBusy(true);
+    setMessage('');
+    const r = await guard(() => api('/game/load-questions', { method: 'POST' }));
+    if (r) setMessage(`✓ ${r.count} questions decrypted and loaded into the game. The coordinator can start.`);
+    setBusy(false);
+    refresh();
+  };
+
+  const inLobby = !status || status.state === 'lobby';
+  return (
+    <Panel bracketed style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ flex: '1 1 300px' }}>
+        <div className="eyebrow">Live event</div>
+        <div style={{ fontWeight: 600, marginTop: 8 }}>
+          {status?.count ? `${status.count} questions loaded in the game${status.by ? ` by ${status.by}` : ''}` : 'No questions loaded in the game yet'}
+        </div>
+        <p className="dim" style={{ fontSize: '0.82rem', margin: '6px 0 0', lineHeight: 1.5 }}>
+          {inLobby
+            ? 'Loading decrypts the active questions into the game server only. Phones and the projector see each question when it goes live.'
+            : 'The game is running — questions can be loaded again once it is reset to the lobby.'}
+        </p>
+        {message && <p role="status" style={{ margin: '8px 0 0', fontSize: '0.88rem', color: 'var(--good)' }}>{message}</p>}
+      </div>
+      <button className="btn btn-heat" onClick={load} disabled={busy || !inLobby}>
+        {busy ? 'Loading…' : status?.count ? 'Reload into game' : 'Load into game →'}
+      </button>
+    </Panel>
+  );
+}
+
 // ─── Bank ─────────────────────────────────────────────────────────────────────
-function QuestionBank({ vaultUntil, onLocked }: { vaultUntil: number; onLocked: () => void }) {
+function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
+  vaultUntil: number; onLocked: () => void; onRecoveryCode: (code: string) => void;
+}) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [level, setLevel] = useState(1);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -108,6 +197,10 @@ function QuestionBank({ vaultUntil, onLocked }: { vaultUntil: number; onLocked: 
 
   const inLevel = questions.filter(q => q.level === level);
   const lock = async () => { await api('/auth/vault/lock', { method: 'POST' }).catch(() => {}); onLocked(); };
+  const newRecoveryCode = () => {
+    if (!confirm('Create a new recovery code? The old code will stop working.')) return;
+    guard(async () => onRecoveryCode((await api('/questions/recovery-code', { method: 'POST' })).recoveryCode));
+  };
   const left = Math.max(0, Math.round((vaultUntil - now) / 1000));
 
   const move = (q: Question, direction: 'up' | 'down') =>
@@ -130,8 +223,11 @@ function QuestionBank({ vaultUntil, onLocked }: { vaultUntil: number; onLocked: 
         <span className="dim" style={{ fontSize: '0.88rem' }}>Re-locks in <span className="mono">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</span></span>
         <span style={{ flex: 1 }} />
         <span className="dim" style={{ fontSize: '0.85rem' }}>{questions.filter(q => q.isActive).length} active of {questions.length} questions</span>
+        <button className="btn btn-ghost btn-sm" onClick={newRecoveryCode}>New recovery code</button>
         <button className="btn btn-ghost btn-sm" onClick={lock}>Lock now</button>
       </Panel>
+
+      <LoadIntoGame guard={guard} refreshKey={questions.length} />
 
       <nav className="tabs" aria-label="Levels">
         {LEVELS.map(l => (

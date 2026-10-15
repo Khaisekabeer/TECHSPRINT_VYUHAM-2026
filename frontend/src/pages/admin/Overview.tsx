@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, downloadFile } from '../../lib/api';
 import { Panel } from '../../components/ui';
-import GameLinks from './GameLinks';
 
 interface Recent { id: number; action: 'admit' | 'undo'; at: string; ticketId: string; name: string; college: string | null; by: string | null }
 
@@ -89,8 +88,6 @@ export default function Overview() {
           <button className="btn btn-ghost" onClick={download}>Download CSV ↓</button>
         </Panel>
       </div>
-
-      <GameLinks />
 
       <Panel style={{ padding: 0 }}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

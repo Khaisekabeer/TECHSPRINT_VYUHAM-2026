@@ -1,16 +1,20 @@
 // Staff REST API. Roles:
-//   coordinator  everything except the question bank (staff, participants, check-in, settings, results, game)
-//   quizmaster   question bank (behind a second PIN) and game control
-//   volunteer    pass scanning / check-in
+//   admin        management: participants (MakeMyPass CSV), staff, check-in, settings, results
+//   quizmaster   encrypted question bank (behind a second PIN); loads questions into the game
+//   coordinator  conducts the live event (host console, via Socket.IO)
+//   volunteer    pass check-in and live monitoring
 const express = require('express');
 const auth = require('./auth');
 const store = require('./store');
+const vault = require('./vault');
+const questionKeys = require('./questionKeys');
 
 const { requireStaff, requireVault } = auth;
+const ADMIN = 'admin';
 const COORD = 'coordinator';
 const QM = 'quizmaster';
 const VOL = 'volunteer';
-const ROLES = [COORD, QM, VOL];
+const ROLES = [ADMIN, QM, COORD, VOL];
 
 const USERNAME_RE = /^[a-zA-Z0-9._@+-]{3,64}$/; // plain usernames or email addresses
 const PIN_RE = /^\d{4,8}$/;
@@ -51,8 +55,10 @@ function validateQuestion(body) {
 }
 
 /**
- * @param hooks.onQuestionsChanged  reload questions into the game (lobby only)
- * @param hooks.onSettingsChanged   push new settings to the game server
+ * @param hooks.onQuestionsChanged(dek)            refresh already-loaded game questions (lobby only)
+ * @param hooks.loadQuestionsIntoGame(dek, staff)  decrypt active questions into the game
+ * @param hooks.gameQuestionsStatus()              what the game currently has loaded
+ * @param hooks.onSettingsChanged(settings)        push new settings to the game server
  */
 module.exports = function createApi(hooks) {
   const api = express.Router();
@@ -85,17 +91,59 @@ module.exports = function createApi(hooks) {
     res.json({ success: true });
   }));
 
-  // Quiz master's second factor for the confidential question bank.
-  api.post('/auth/vault', small, requireStaff(QM), route(async (req, res) => {
+  // Quiz master's second factor: the PIN unlocks the encryption key of the question bank.
+  async function checkPin(req, res) {
     const key = `pin:${req.session.staff.id}`;
-    if (auth.isLockedOut(key)) return res.status(429).json({ error: 'Too many wrong PINs. Wait 5 minutes.' });
+    if (auth.isLockedOut(key)) {
+      res.status(429).json({ error: 'Too many wrong PINs. Wait 5 minutes.' });
+      return null;
+    }
     const row = await store.getStaffRow(req.session.staff.id);
-    if (!(await auth.verifySecret(String(req.body?.pin ?? ''), row?.pin_hash))) {
+    const pin = String(req.body?.pin ?? '');
+    if (!(await auth.verifySecret(pin, row?.pin_hash))) {
       auth.recordFailure(key, 5, 5 * 60 * 1000);
-      return res.status(401).json({ error: 'Wrong PIN' });
+      res.status(401).json({ error: 'Wrong PIN' });
+      return null;
     }
     auth.clearFailures(key);
-    res.json({ vaultUntil: await auth.unlockVault(req.session.tokenHash) });
+    return { row, pin };
+  }
+
+  function vaultFailure(res, err) {
+    if (err instanceof vault.VaultError) {
+      const status = err.code === 'NEEDS_GRANT' ? 409 : err.code === 'BAD_RECOVERY' ? 401 : err.code === 'NO_SECRET' ? 500 : 400;
+      if (err.code === 'NO_SECRET') console.error('[vault]', err.message);
+      return res.status(status).json({ error: err.code === 'NO_SECRET' ? 'Question encryption is not configured on the server' : err.message, needsGrant: err.code === 'NEEDS_GRANT' });
+    }
+    throw err;
+  }
+
+  async function openVault(req, dek) {
+    const vaultUntil = await auth.unlockVault(req.session.tokenHash, dek);
+    await questionKeys.afterUnlock(dek, req.session.staff.id);
+    return vaultUntil;
+  }
+
+  api.post('/auth/vault', small, requireStaff(QM), route(async (req, res) => {
+    const ok = await checkPin(req, res);
+    if (!ok) return;
+    try {
+      const { dek, recoveryCode } = await questionKeys.unlock(ok.row, ok.pin);
+      res.json({ vaultUntil: await openVault(req, dek), recoveryCode });
+    } catch (err) {
+      vaultFailure(res, err);
+    }
+  }));
+
+  api.post('/auth/vault/recover', small, requireStaff(QM), route(async (req, res) => {
+    const ok = await checkPin(req, res);
+    if (!ok) return;
+    try {
+      const dek = await questionKeys.recover(ok.row, ok.pin, String(req.body?.recoveryCode ?? ''));
+      res.json({ vaultUntil: await openVault(req, dek) });
+    } catch (err) {
+      vaultFailure(res, err);
+    }
   }));
 
   api.post('/auth/vault/lock', requireStaff(QM), route(async (req, res) => {
@@ -103,12 +151,12 @@ module.exports = function createApi(hooks) {
     res.json({ success: true });
   }));
 
-  // ─── Staff management (coordinator) ────────────────────────────────────────
-  api.get('/staff', requireStaff(COORD), route(async (req, res) => {
+  // ─── Staff management (admin) ──────────────────────────────────────────────
+  api.get('/staff', requireStaff(ADMIN), route(async (req, res) => {
     res.json(await store.listStaff());
   }));
 
-  api.post('/staff', small, requireStaff(COORD), route(async (req, res) => {
+  api.post('/staff', small, requireStaff(ADMIN), route(async (req, res) => {
     const username = str(req.body?.username, 64);
     const displayName = str(req.body?.displayName, 60);
     const role = req.body?.role;
@@ -126,12 +174,13 @@ module.exports = function createApi(hooks) {
       role,
       password_hash: await auth.hashSecret(password),
       pin_hash: role === QM ? await auth.hashSecret(pin) : null,
+      ...(role === QM ? await questionKeys.keysForNewPin(pin) : {}),
       created_by: req.session.staff.id,
     });
     res.status(201).json(staff);
   }));
 
-  api.patch('/staff/:id', small, requireStaff(COORD), route(async (req, res) => {
+  api.patch('/staff/:id', small, requireStaff(ADMIN), route(async (req, res) => {
     const target = await store.getStaffRow(req.params.id);
     if (!target) return res.status(404).json({ error: 'Staff member not found' });
     const isSelf = target.id === req.session.staff.id;
@@ -159,22 +208,35 @@ module.exports = function createApi(hooks) {
       fields.password_hash = await auth.hashSecret(req.body.password);
       endSessions = !isSelf || endSessions;
     }
+    const newRole = fields.role ?? target.role;
+    let resetKeyGrant = false;
     if (req.body.pin !== undefined && req.body.pin !== '') {
       check(PIN_RE.test(String(req.body.pin)), 'PIN must be 4-8 digits');
       fields.pin_hash = await auth.hashSecret(String(req.body.pin));
+      // A new PIN means a new key pair; the question key is re-shared by the next unlocking quiz master.
+      if (newRole === QM) {
+        Object.assign(fields, await questionKeys.keysForNewPin(String(req.body.pin)));
+        resetKeyGrant = true;
+        endSessions = true;
+      }
     }
-    // Never leave the event without an active coordinator.
-    if (target.role === COORD && (fields.active === false || (fields.role && fields.role !== COORD))) {
-      check((await store.countActiveCoordinators()) > 1, 'There must be at least one active coordinator');
+    if (target.role === QM && fields.role && fields.role !== QM) {
+      Object.assign(fields, { vault_public_key: null, vault_private_key: null, vault_key_salt: null });
+      resetKeyGrant = true;
+    }
+    // Never leave the event without an active admin.
+    if (target.role === ADMIN && (fields.active === false || (fields.role && fields.role !== ADMIN))) {
+      check((await store.countActiveAdmins()) > 1, 'There must be at least one active admin');
     }
     check(Object.keys(fields).length, 'Nothing to change');
     const staff = await store.updateStaff(target.id, fields);
+    if (resetKeyGrant) await store.deleteGrant(target.id);
     if (endSessions) await auth.endSessionsForStaff(target.id);
     res.json(staff);
   }));
 
-  // ─── Participants (coordinator) ────────────────────────────────────────────
-  api.post('/registrations/import', big, requireStaff(COORD), route(async (req, res) => {
+  // ─── Participants (admin) ──────────────────────────────────────────────────
+  api.post('/registrations/import', big, requireStaff(ADMIN), route(async (req, res) => {
     const input = Array.isArray(req.body?.rows) ? req.body.rows : [];
     check(input.length > 0, 'No rows to import');
     check(input.length <= 20000, 'Import at most 20,000 rows at a time');
@@ -193,30 +255,30 @@ module.exports = function createApi(hooks) {
     res.json({ imported, skipped, duplicates: input.length - skipped - seen.size });
   }));
 
-  api.get('/registrations', requireStaff(COORD), route(async (req, res) => {
+  api.get('/registrations', requireStaff(ADMIN), route(async (req, res) => {
     const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
     const offset = Math.max(0, Number(req.query.offset) || 0);
     const status = ['in', 'out'].includes(req.query.status) ? req.query.status : 'all';
     res.json(await store.searchRegistrations({ q: str(req.query.q, 80), status, limit, offset }));
   }));
 
-  api.post('/registrations/:ticketId/undo', requireStaff(COORD), route(async (req, res) => {
+  api.post('/registrations/:ticketId/undo', requireStaff(ADMIN), route(async (req, res) => {
     const reg = await store.undoCheckin(store.normalizeTicketId(req.params.ticketId), req.session.staff.id);
     if (!reg) return res.status(404).json({ error: 'Ticket not found' });
     res.json(reg);
   }));
 
-  api.get('/checkin/stats', requireStaff(COORD), route(async (req, res) => {
+  api.get('/checkin/stats', requireStaff(ADMIN), route(async (req, res) => {
     res.json(await store.checkinStats());
   }));
 
-  // ─── Check-in (volunteer + coordinator) ────────────────────────────────────
-  api.get('/checkin/recent', requireStaff(COORD, VOL), route(async (req, res) => {
+  // ─── Check-in (volunteer + admin) ──────────────────────────────────────────
+  api.get('/checkin/recent', requireStaff(ADMIN, VOL), route(async (req, res) => {
     const mine = req.session.staff.role === VOL || req.query.mine === '1';
     res.json(await store.recentCheckins({ staffId: mine ? req.session.staff.id : undefined, limit: 25 }));
   }));
 
-  api.get('/checkin/:ticketId', requireStaff(COORD, VOL), route(async (req, res) => {
+  api.get('/checkin/:ticketId', requireStaff(ADMIN, VOL), route(async (req, res) => {
     const ticketId = store.normalizeTicketId(req.params.ticketId);
     check(ticketId, 'Ticket ID is required');
     const reg = await store.getRegistration(ticketId);
@@ -224,7 +286,7 @@ module.exports = function createApi(hooks) {
     res.json(reg);
   }));
 
-  api.post('/checkin/:ticketId', requireStaff(COORD, VOL), route(async (req, res) => {
+  api.post('/checkin/:ticketId', requireStaff(ADMIN, VOL), route(async (req, res) => {
     const ticketId = store.normalizeTicketId(req.params.ticketId);
     const admitted = await store.admit(ticketId, req.session.staff.id);
     if (admitted) return res.json({ status: 'admitted', registration: admitted });
@@ -233,20 +295,20 @@ module.exports = function createApi(hooks) {
     res.status(409).json({ status: 'already', registration: existing, error: 'Already checked in' });
   }));
 
-  // ─── Settings & results (coordinator) ──────────────────────────────────────
-  api.get('/settings', requireStaff(COORD), route(async (req, res) => {
+  // ─── Settings & results (admin) ────────────────────────────────────────────
+  api.get('/settings', requireStaff(ADMIN), route(async (req, res) => {
     const s = await store.getSettings();
     res.json({ requireCheckin: s.require_checkin !== false });
   }));
 
-  api.put('/settings', small, requireStaff(COORD), route(async (req, res) => {
+  api.put('/settings', small, requireStaff(ADMIN), route(async (req, res) => {
     check(typeof req.body?.requireCheckin === 'boolean', 'requireCheckin must be true or false');
     await store.setSetting('require_checkin', req.body.requireCheckin);
     hooks.onSettingsChanged({ requireCheckin: req.body.requireCheckin });
     res.json({ requireCheckin: req.body.requireCheckin });
   }));
 
-  api.get('/results/latest.csv', requireStaff(COORD), route(async (req, res) => {
+  api.get('/results/latest.csv', requireStaff(ADMIN), route(async (req, res) => {
     const result = await store.latestResults();
     if (!result) return res.status(404).json({ error: 'No game has been played yet' });
     const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -260,36 +322,44 @@ module.exports = function createApi(hooks) {
     res.send('﻿' + lines.join('\r\n'));
   }));
 
-  // ─── Question bank (quiz master + PIN) ─────────────────────────────────────
+  // ─── Question bank (quiz master + PIN; contents encrypted at rest) ──────────
   const qm = [requireStaff(QM), requireVault];
+  const dekOf = req => req.session.dek;
+  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer });
+
+  api.post('/questions/recovery-code', ...qm, route(async (req, res) => {
+    res.json({ recoveryCode: await questionKeys.rotateRecoveryCode(dekOf(req)) });
+  }));
 
   api.get('/questions', ...qm, route(async (req, res) => {
-    res.json(await store.listQuestionsAdmin());
+    res.json((await store.listQuestionRows()).map(r => questionKeys.decryptRow(r, dekOf(req))));
   }));
 
   api.post('/questions', small, ...qm, route(async (req, res) => {
-    const q = await store.createQuestion(validateQuestion(req.body || {}));
-    hooks.onQuestionsChanged();
-    res.status(201).json(q);
+    const q = validateQuestion(req.body || {});
+    const row = await store.createQuestion(q, sealContent(req, q));
+    hooks.onQuestionsChanged(dekOf(req));
+    res.status(201).json(questionKeys.decryptRow(row, dekOf(req)));
   }));
 
   api.put('/questions/:id', small, ...qm, route(async (req, res) => {
-    const q = await store.updateQuestion(Number(req.params.id), validateQuestion(req.body || {}));
-    if (!q) return res.status(404).json({ error: 'Question not found' });
-    hooks.onQuestionsChanged();
-    res.json(q);
+    const q = validateQuestion(req.body || {});
+    const row = await store.updateQuestion(Number(req.params.id), q, sealContent(req, q));
+    if (!row) return res.status(404).json({ error: 'Question not found' });
+    hooks.onQuestionsChanged(dekOf(req));
+    res.json(questionKeys.decryptRow(row, dekOf(req)));
   }));
 
   api.delete('/questions/:id', ...qm, route(async (req, res) => {
     await store.deleteQuestion(Number(req.params.id));
-    hooks.onQuestionsChanged();
+    hooks.onQuestionsChanged(dekOf(req));
     res.json({ success: true });
   }));
 
   api.post('/questions/:id/move', small, ...qm, route(async (req, res) => {
     check(['up', 'down'].includes(req.body?.direction), 'direction must be up or down');
     if (!(await store.moveQuestion(Number(req.params.id), req.body.direction))) return res.status(404).json({ error: 'Question not found' });
-    hooks.onQuestionsChanged();
+    hooks.onQuestionsChanged(dekOf(req));
     res.json({ success: true });
   }));
 
@@ -299,8 +369,20 @@ module.exports = function createApi(hooks) {
     check([1, 2, 3].includes(level), 'Level must be 1, 2 or 3');
     check(seconds >= 5 && seconds <= 300, 'Timer must be between 5 and 300 seconds');
     await store.setLevelTimer(level, seconds);
-    hooks.onQuestionsChanged();
+    hooks.onQuestionsChanged(dekOf(req));
     res.json({ success: true });
+  }));
+
+  // The only path from the encrypted bank to the live event: the quiz master decrypts the active
+  // questions into the game server's memory. The coordinator then runs the game.
+  api.get('/game/questions-status', requireStaff(QM), (req, res) => {
+    res.json(hooks.gameQuestionsStatus());
+  });
+
+  api.post('/game/load-questions', ...qm, route(async (req, res) => {
+    const result = await hooks.loadQuestionsIntoGame(dekOf(req), req.session.staff);
+    if (result.error) return res.status(409).json(result);
+    res.json(result);
   }));
 
   return api;

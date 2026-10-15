@@ -8,21 +8,25 @@ import Participants from './admin/Participants';
 import Scanner from './admin/Scanner';
 import StaffManager from './admin/StaffManager';
 import Questions from './admin/Questions';
+import LiveMonitor from './admin/LiveMonitor';
 
-type TabId = 'overview' | 'participants' | 'scan' | 'staff' | 'questions' | 'game';
+type TabId = 'overview' | 'participants' | 'scan' | 'staff' | 'questions' | 'live';
 
+// admin: management · quizmaster: questions · coordinator: conducts the event · volunteer: check-in + monitoring
 const TABS: Record<Role, { id: TabId; label: string }[]> = {
-  coordinator: [
+  admin: [
     { id: 'overview', label: 'Overview' },
     { id: 'participants', label: 'Participants' },
     { id: 'scan', label: 'Check-in' },
     { id: 'staff', label: 'Staff' },
+    { id: 'live', label: 'Live event' },
   ],
-  quizmaster: [
-    { id: 'questions', label: 'Questions' },
-    { id: 'game', label: 'Game' },
+  quizmaster: [{ id: 'questions', label: 'Questions' }],
+  coordinator: [{ id: 'live', label: 'Live event' }],
+  volunteer: [
+    { id: 'scan', label: 'Check-in' },
+    { id: 'live', label: 'Live monitor' },
   ],
-  volunteer: [{ id: 'scan', label: 'Check-in' }],
 };
 
 const TAB_KEY = 'techsprint_admin_tab';
@@ -68,7 +72,12 @@ export default function Admin() {
         {active === 'scan' && <Scanner />}
         {active === 'staff' && <StaffManager />}
         {active === 'questions' && <Questions />}
-        {active === 'game' && <GameLinks />}
+        {active === 'live' && (
+          <>
+            {role !== 'volunteer' && <GameLinks />}
+            <LiveMonitor />
+          </>
+        )}
       </main>
     </div>
   );

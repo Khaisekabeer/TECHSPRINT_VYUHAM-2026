@@ -61,10 +61,10 @@ async function listStaff() {
   return rows.map(toStaff);
 }
 
-async function countActiveCoordinators() {
+async function countActiveAdmins() {
   const { count } = await run(
-    supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'coordinator').eq('active', true),
-    'Counting coordinators',
+    supabase.from('staff').select('id', { count: 'exact', head: true }).eq('role', 'admin').eq('active', true),
+    'Counting admins',
   );
   return count;
 }
@@ -220,63 +220,55 @@ function setSetting(key, value) {
   return run(supabase.from('settings').upsert({ key, value, updated_at: new Date().toISOString() }), 'Saving setting');
 }
 
-// ─── Question bank ────────────────────────────────────────────────────────────
-function toQuestionAdmin(row) {
-  return {
-    id: row.id,
-    level: row.level,
-    position: row.position,
-    text: row.text,
-    type: row.type,
-    options: row.options || [],
-    correctAnswer: row.correct_answer,
-    timeLimit: row.time_limit,
-    points: row.points,
-    isActive: row.is_active,
-  };
+// ─── Question bank (content is encrypted; see vault.js) ───────────────────────
+// Rows carry plaintext metadata (level, order, type, timer, points) and an encrypted `payload`
+// with the text, options and answer. Callers encrypt/decrypt; this layer only stores.
+const EMPTY_CONTENT = { text: null, options: [], correct_answer: null };
+
+function listQuestionRows() {
+  return run(supabase.from('questions').select('*').order('level').order('position').order('id'), 'Loading questions');
 }
 
-async function listQuestionsAdmin() {
-  const rows = await run(supabase.from('questions').select('*').order('level').order('position').order('id'), 'Loading questions');
-  return rows.map(toQuestionAdmin);
-}
-
-async function createQuestion(q) {
+async function createQuestion(meta, payload) {
   const last = await run(
-    supabase.from('questions').select('position').eq('level', q.level).order('position', { ascending: false }).limit(1),
+    supabase.from('questions').select('position').eq('level', meta.level).order('position', { ascending: false }).limit(1),
     'Finding position',
   );
   const rows = await run(
     supabase.from('questions').insert({
-      level: q.level,
+      ...EMPTY_CONTENT,
+      payload,
+      level: meta.level,
       position: (last[0]?.position ?? -1) + 1,
-      text: q.text,
-      type: q.type,
-      options: q.options,
-      correct_answer: q.correctAnswer,
-      time_limit: q.timeLimit,
-      points: q.points,
+      type: meta.type,
+      time_limit: meta.timeLimit,
+      points: meta.points,
+      is_active: meta.isActive,
     }).select('*'),
     'Creating question',
   );
-  return toQuestionAdmin(rows[0]);
+  return rows[0];
 }
 
-async function updateQuestion(id, q) {
+async function updateQuestion(id, meta, payload) {
   const rows = await run(
     supabase.from('questions').update({
-      level: q.level,
-      text: q.text,
-      type: q.type,
-      options: q.options,
-      correct_answer: q.correctAnswer,
-      time_limit: q.timeLimit,
-      points: q.points,
-      is_active: q.isActive,
+      ...EMPTY_CONTENT,
+      payload,
+      level: meta.level,
+      type: meta.type,
+      time_limit: meta.timeLimit,
+      points: meta.points,
+      is_active: meta.isActive,
     }).eq('id', id).select('*'),
     'Updating question',
   );
-  return rows[0] ? toQuestionAdmin(rows[0]) : null;
+  return rows[0] || null;
+}
+
+// Replace plaintext content with its encrypted payload (used once per legacy/seeded row).
+function sealQuestionRow(id, payload) {
+  return run(supabase.from('questions').update({ ...EMPTY_CONTENT, payload }).eq('id', id).is('payload', null), 'Encrypting question');
 }
 
 function deleteQuestion(id) {
@@ -285,7 +277,7 @@ function deleteQuestion(id) {
 
 // Swap a question with its neighbour inside its level.
 async function moveQuestion(id, direction) {
-  const all = await listQuestionsAdmin();
+  const all = await listQuestionRows();
   const q = all.find(x => x.id === id);
   if (!q) return false;
   const level = all.filter(x => x.level === q.level);
@@ -302,6 +294,43 @@ async function moveQuestion(id, direction) {
 
 function setLevelTimer(level, seconds) {
   return run(supabase.from('questions').update({ time_limit: seconds }).eq('level', level), 'Setting level timer');
+}
+
+// ─── Question vault keys ──────────────────────────────────────────────────────
+async function getVault() {
+  const rows = await run(supabase.from('question_vault').select('*').eq('id', 1).limit(1), 'Loading question vault');
+  return rows[0] || null;
+}
+
+function insertVault(row) {
+  return run(supabase.from('question_vault').insert({ id: 1, ...row }), 'Creating question vault');
+}
+
+function updateVaultRecovery(row) {
+  return run(supabase.from('question_vault').update(row).eq('id', 1), 'Replacing recovery code');
+}
+
+async function getGrant(staffId) {
+  const rows = await run(supabase.from('question_key_grants').select('*').eq('staff_id', staffId).limit(1), 'Loading key grant');
+  return rows[0] || null;
+}
+
+function upsertGrant(row) {
+  return run(supabase.from('question_key_grants').upsert({ ...row, granted_at: new Date().toISOString() }), 'Saving key grant');
+}
+
+function deleteGrant(staffId) {
+  return run(supabase.from('question_key_grants').delete().eq('staff_id', staffId), 'Removing key grant');
+}
+
+// Active quiz masters that have a key pair but no copy of the question key yet.
+async function quizmastersWithoutGrant() {
+  const [qms, grants] = await Promise.all([
+    run(supabase.from('staff').select('id, vault_public_key').eq('role', 'quizmaster').eq('active', true).not('vault_public_key', 'is', null), 'Listing quiz masters'),
+    run(supabase.from('question_key_grants').select('staff_id'), 'Listing key grants'),
+  ]);
+  const granted = new Set(grants.map(g => g.staff_id));
+  return qms.filter(q => !granted.has(q.id));
 }
 
 // ─── Results ──────────────────────────────────────────────────────────────────
@@ -329,7 +358,7 @@ module.exports = {
   findStaffForLogin,
   getStaffRow,
   listStaff,
-  countActiveCoordinators,
+  countActiveAdmins,
   createStaff,
   updateStaff,
   toStaff,
@@ -348,11 +377,19 @@ module.exports = {
   recentCheckins,
   getSettings,
   setSetting,
-  listQuestionsAdmin,
+  listQuestionRows,
   createQuestion,
   updateQuestion,
+  sealQuestionRow,
   deleteQuestion,
   moveQuestion,
   setLevelTimer,
+  getVault,
+  insertVault,
+  updateVaultRecovery,
+  getGrant,
+  upsertGrant,
+  deleteGrant,
+  quizmastersWithoutGrant,
   latestResults,
 };

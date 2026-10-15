@@ -69,28 +69,46 @@ async function getSession(token) {
   if (!row || !row.staff?.active) return null;
   const expiresAt = new Date(row.expires_at).getTime();
   if (expiresAt <= Date.now()) return null;
-  const session = {
-    staff: toSessionStaff(row.staff),
-    expiresAt,
-    vaultUntil: row.vault_until ? new Date(row.vault_until).getTime() : 0,
-  };
+  // The question key only ever lives in memory, so a session restored after a restart is locked.
+  const session = { staff: toSessionStaff(row.staff), expiresAt, vaultUntil: 0, dek: null };
   cache.set(tokenHash, session);
   return { ...session, tokenHash };
 }
 
-async function unlockVault(tokenHash) {
+// The unwrapped question key (DEK) is held in this process's memory for the unlock window only.
+async function unlockVault(tokenHash, dek) {
   const vaultUntil = Date.now() + VAULT_TTL_MS;
   await store.setSessionVault(tokenHash, new Date(vaultUntil).toISOString());
   const s = cache.get(tokenHash);
-  if (s) s.vaultUntil = vaultUntil;
+  if (s) {
+    s.vaultUntil = vaultUntil;
+    s.dek = dek;
+  }
   return vaultUntil;
 }
 
 async function lockVault(tokenHash) {
-  await store.setSessionVault(tokenHash, null);
   const s = cache.get(tokenHash);
-  if (s) s.vaultUntil = 0;
+  if (s) {
+    s.dek?.fill(0);
+    s.dek = null;
+    s.vaultUntil = 0;
+  }
+  await store.setSessionVault(tokenHash, null);
 }
+
+const vaultOpen = s => !!s && !!s.dek && s.vaultUntil > Date.now();
+
+// Wipe question keys from memory as soon as their unlock window ends.
+setInterval(() => {
+  for (const s of cache.values()) {
+    if (s.dek && s.vaultUntil <= Date.now()) {
+      s.dek.fill(0);
+      s.dek = null;
+      s.vaultUntil = 0;
+    }
+  }
+}, 30 * 1000).unref();
 
 async function endSession(tokenHash) {
   cache.delete(tokenHash);
@@ -127,23 +145,23 @@ function requireStaff(...roles) {
 }
 
 function requireVault(req, res, next) {
-  if (!(req.session?.vaultUntil > Date.now())) {
+  if (!vaultOpen(req.session)) {
     return res.status(423).json({ error: 'Question bank is locked — enter your quiz master PIN', locked: true });
   }
   next();
 }
 
-// First run: create a coordinator so someone can sign in and set up the rest.
-async function ensureBootstrapCoordinator() {
+// First run: create an admin so someone can sign in and set up the rest.
+async function ensureBootstrapAdmin() {
   if ((await store.countStaff()) > 0) return;
   const password = process.env.ADMIN_PASSWORD || 'admin';
   await store.createStaff({
     username: 'admin',
-    display_name: 'Coordinator',
-    role: 'coordinator',
+    display_name: 'Admin',
+    role: 'admin',
     password_hash: await hashSecret(password),
   });
-  console.warn('Created first coordinator account "admin" (password = ADMIN_PASSWORD). Change it in Admin → Staff.');
+  console.warn('Created first admin account "admin" (password = ADMIN_PASSWORD). Change it in Admin → Staff.');
 }
 
 module.exports = {
@@ -155,11 +173,12 @@ module.exports = {
   clearFailures,
   createSession,
   getSession,
+  vaultOpen,
   unlockVault,
   lockVault,
   endSession,
   endSessionsForStaff,
   requireStaff,
   requireVault,
-  ensureBootstrapCoordinator,
+  ensureBootstrapAdmin,
 };

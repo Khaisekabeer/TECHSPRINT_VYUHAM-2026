@@ -5,9 +5,10 @@ import { Panel } from '../../components/ui';
 interface StaffRow { id: string; username: string; displayName: string; role: Role; active: boolean; hasPin: boolean }
 
 const ROLE_HELP: Record<Role, string> = {
-  coordinator: 'Everything except the question bank: participants, check-in, staff, settings, results, game.',
-  quizmaster: 'Question bank (behind a second PIN), timers, and running the live game.',
-  volunteer: 'Scans passes and admits participants at the entry.',
+  admin: 'Management: participants (MakeMyPass CSV), staff accounts, check-in, settings, results. Everything except the question bank.',
+  quizmaster: 'Writes the questions and answers in the encrypted question bank (opened with a PIN) and loads them into the game.',
+  coordinator: 'Conducts the live event from the host console: start, next question, reveal, kick, reset.',
+  volunteer: 'Checks in passes at the entry and monitors the live event (who is online, answers in).',
 };
 
 export default function StaffManager() {
@@ -36,7 +37,7 @@ export default function StaffManager() {
     if (password) patch(s, { password }, `Password updated for ${s.displayName}.`);
   };
   const setPin = (s: StaffRow) => {
-    const pin = prompt(`New question-bank PIN for ${s.displayName} (4-8 digits):`);
+    const pin = prompt(`New question-bank PIN for ${s.displayName} (4-8 digits).\n\nThey'll get the question key back the next time another quiz master unlocks the bank, or with the recovery code.`);
     if (pin) patch(s, { pin }, `PIN updated for ${s.displayName}.`);
   };
   const toggleActive = (s: StaffRow) => {
@@ -58,7 +59,7 @@ export default function StaffManager() {
                 <tr key={s.id} style={{ opacity: s.active ? 1 : 0.5 }}>
                   <td><strong>{s.displayName}</strong>{s.id === me?.staff.id && <span className="dim" style={{ fontSize: '0.8rem' }}> (you)</span>}</td>
                   <td className="mono" style={{ fontSize: '0.82rem' }}>{s.username}</td>
-                  <td><span className={`pill${s.role === 'coordinator' ? ' pill-dark' : ''}`}>{ROLE_LABEL[s.role]}</span></td>
+                  <td><span className={`pill${s.role === 'admin' ? ' pill-dark' : ''}`}>{ROLE_LABEL[s.role]}</span></td>
                   <td>{s.active ? <span className="pill pill-good">Active</span> : <span className="pill pill-bad">Disabled</span>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => resetPassword(s)}>Password</button>{' '}

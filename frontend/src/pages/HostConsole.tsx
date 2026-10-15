@@ -3,7 +3,7 @@ import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Brand, Panel as SharedPanel, TimerRing, Toast } from '../components/ui';
 import StaffLogin from '../components/StaffLogin';
-import { ROLE_LABEL, session, signOut, useStaffSession } from '../lib/api';
+import { CAN_HOST, ROLE_LABEL, session, signOut, useStaffSession } from '../lib/api';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby',
@@ -16,7 +16,8 @@ const PHASE_LABEL: Record<string, string> = {
 export default function HostConsole() {
   const { socket, isConnected } = useSocket();
   const current = useStaffSession();
-  const token = current && current.staff.role !== 'volunteer' ? current.token : null;
+  const token = current && CAN_HOST.includes(current.staff.role) ? current.token : null;
+  const [loaded, setLoaded] = useState<{ count: number; by?: string } | null>(null);
   const [gameState, setGameState] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
@@ -42,6 +43,7 @@ export default function HostConsole() {
     socket.on('game_state', setGameState);
     socket.on('players_list', setPlayers);
     socket.on('answer_count', setAnswerCount);
+    socket.on('questions_loaded', setLoaded);
     socket.emit('join_role', 'host', token, (res: any) => {
       if (res?.error) logout(res.error);
     });
@@ -49,6 +51,7 @@ export default function HostConsole() {
       socket.off('game_state');
       socket.off('players_list');
       socket.off('answer_count');
+      socket.off('questions_loaded');
     };
   }, [socket, token, isConnected]);
 
@@ -60,8 +63,6 @@ export default function HostConsole() {
     });
   };
 
-  const loadQuestions = () => hostAction('load_questions', null, res =>
-    showToast(`✓ Loaded ${res.count} question${res.count !== 1 ? 's' : ''}`));
   const startGame = () => hostAction('start_game');
   const startQuestion = () => hostAction('start_question');
   const endQuestion = () => hostAction('end_question');
@@ -82,12 +83,12 @@ export default function HostConsole() {
     return Math.max(0, gameState.currentQuestionIndex);
   })();
 
-  // ─── Sign-in: quiz master or coordinator ───────────────────────────────────
+  // ─── Sign-in: coordinator (or admin) conducts the live event ───────────────
   if (!current) {
     return (
       <>
         {toast && <Toast msg={toast} />}
-        <StaffLogin title="Host" accent="Command" note="Quiz master or coordinator sign-in." />
+        <StaffLogin title="Host" accent="Command" note="Coordinator sign-in — conducts the live event." />
       </>
     );
   }
@@ -96,9 +97,11 @@ export default function HostConsole() {
       <div className="stage" style={{ alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <SharedPanel bracketed style={{ maxWidth: 420, textAlign: 'center', padding: '32px 28px' }}>
           <h1 className="display" style={{ fontSize: '2.4rem', margin: '0 0 10px' }}>No access</h1>
-          <p className="dim" style={{ margin: '0 0 20px' }}>Volunteers can't run the game. Head to the check-in scanner instead.</p>
+          <p className="dim" style={{ margin: '0 0 20px' }}>
+            The coordinator conducts the live event. {ROLE_LABEL[current.staff.role]}s use the admin panel.
+          </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <a className="btn btn-heat" href="/admin">Open check-in</a>
+            <a className="btn btn-heat" href="/admin">Open admin panel</a>
             <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
           </div>
         </SharedPanel>
@@ -173,9 +176,10 @@ export default function HostConsole() {
                   <button className="btn btn-heat btn-lg" onClick={startGame} disabled={players.length === 0 || total === 0}>
                     Start game →
                   </button>
-                  <button className="btn btn-ghost" onClick={loadQuestions}>Reload questions</button>
                   <span className="dim" style={{ fontSize: '0.85rem' }}>
-                    {total === 0 ? 'No questions loaded.' : players.length === 0 ? 'Waiting for players to join…' : `${total} questions ready · ${players.length} players`}
+                    {total === 0
+                      ? 'Waiting for the quiz master to load the questions (Admin → Questions → Load into game).'
+                      : `${total} questions loaded${loaded?.by ? ` by ${loaded.by}` : ''} · ${players.length === 0 ? 'waiting for players to join…' : `${players.length} players`}`}
                   </span>
                 </>
               )}
