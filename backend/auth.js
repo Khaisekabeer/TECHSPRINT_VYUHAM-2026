@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const { promisify } = require('util');
 const store = require('./store');
+const vault = require('./vault');
 
 const scrypt = promisify(crypto.scrypt);
 const SESSION_TTL_MS = 14 * 60 * 60 * 1000; // one event day
@@ -47,12 +48,16 @@ function toSessionStaff(s) {
   return { id: s.id, username: s.username, displayName: s.display_name, role: s.role };
 }
 
+// Short-lived cache: with several serverless instances, a lock / deactivation made on one
+// instance reaches the others within this window.
+const CACHE_TTL_MS = 30 * 1000;
+
 async function createSession(staffRow) {
   const token = crypto.randomBytes(32).toString('hex');
   const tokenHash = sha256(token);
   const expiresAt = Date.now() + SESSION_TTL_MS;
   await store.insertSession({ token_hash: tokenHash, staff_id: staffRow.id, expires_at: new Date(expiresAt).toISOString() });
-  cache.set(tokenHash, { staff: toSessionStaff(staffRow), expiresAt, vaultUntil: 0 });
+  cache.set(tokenHash, { staff: toSessionStaff(staffRow), expiresAt, vaultUntil: 0, dek: null, cachedAt: Date.now() });
   return token;
 }
 
@@ -60,26 +65,36 @@ async function getSession(token) {
   if (typeof token !== 'string' || token.length < 32) return null;
   const tokenHash = sha256(token);
   const hit = cache.get(tokenHash);
-  if (hit) {
-    if (hit.expiresAt > Date.now()) return { ...hit, tokenHash };
+  if (hit && Date.now() - hit.cachedAt < CACHE_TTL_MS) {
+    if (hit.expiresAt > Date.now()) return { ...hit, tokenHash, token };
     cache.delete(tokenHash);
     return null;
   }
   const row = await store.getSessionWithStaff(tokenHash);
-  if (!row || !row.staff?.active) return null;
+  if (!row || !row.staff?.active) {
+    cache.delete(tokenHash);
+    return null;
+  }
   const expiresAt = new Date(row.expires_at).getTime();
   if (expiresAt <= Date.now()) return null;
-  // The question key only ever lives in memory, so a session restored after a restart is locked.
-  const session = { staff: toSessionStaff(row.staff), expiresAt, vaultUntil: 0, dek: null };
+
+  // An unlocked question key travels with the session, sealed under this session's token.
+  let vaultUntil = row.vault_until ? new Date(row.vault_until).getTime() : 0;
+  let dek = null;
+  if (vaultUntil > Date.now() && row.vault_dek) {
+    try { dek = vault.openForSession(token, row.vault_dek); } catch { vaultUntil = 0; }
+  } else {
+    vaultUntil = 0;
+  }
+  const session = { staff: toSessionStaff(row.staff), expiresAt, vaultUntil, dek, cachedAt: Date.now() };
   cache.set(tokenHash, session);
-  return { ...session, tokenHash };
+  return { ...session, tokenHash, token };
 }
 
-// The unwrapped question key (DEK) is held in this process's memory for the unlock window only.
-async function unlockVault(tokenHash, dek) {
+async function unlockVault(session, dek) {
   const vaultUntil = Date.now() + VAULT_TTL_MS;
-  await store.setSessionVault(tokenHash, new Date(vaultUntil).toISOString());
-  const s = cache.get(tokenHash);
+  await store.setSessionVault(session.tokenHash, new Date(vaultUntil).toISOString(), vault.sealForSession(session.token, dek));
+  const s = cache.get(session.tokenHash);
   if (s) {
     s.vaultUntil = vaultUntil;
     s.dek = dek;
@@ -94,7 +109,7 @@ async function lockVault(tokenHash) {
     s.dek = null;
     s.vaultUntil = 0;
   }
-  await store.setSessionVault(tokenHash, null);
+  await store.setSessionVault(tokenHash, null, null);
 }
 
 const vaultOpen = s => !!s && !!s.dek && s.vaultUntil > Date.now();

@@ -87,7 +87,7 @@ function insertSession(row) {
 async function getSessionWithStaff(tokenHash) {
   const rows = await run(
     supabase.from('staff_sessions')
-      .select('token_hash, expires_at, vault_until, staff:staff_id (id, username, display_name, role, active)')
+      .select('token_hash, expires_at, vault_until, vault_dek, staff:staff_id (id, username, display_name, role, active)')
       .eq('token_hash', tokenHash)
       .limit(1),
     'Loading session',
@@ -95,8 +95,11 @@ async function getSessionWithStaff(tokenHash) {
   return rows[0] || null;
 }
 
-function setSessionVault(tokenHash, vaultUntil) {
-  return run(supabase.from('staff_sessions').update({ vault_until: vaultUntil }).eq('token_hash', tokenHash), 'Updating session');
+function setSessionVault(tokenHash, vaultUntil, vaultDek = null) {
+  return run(
+    supabase.from('staff_sessions').update({ vault_until: vaultUntil, vault_dek: vaultDek }).eq('token_hash', tokenHash),
+    'Updating session',
+  );
 }
 
 function deleteSession(tokenHash) {

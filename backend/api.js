@@ -55,9 +55,11 @@ function validateQuestion(body) {
 }
 
 /**
+ * Hooks connect the API to the live game, either in the same process or on another machine
+ * (see app.js localHooks / remoteHooks). All are async.
  * @param hooks.onQuestionsChanged(dek)            refresh already-loaded game questions (lobby only)
  * @param hooks.loadQuestionsIntoGame(dek, staff)  decrypt active questions into the game
- * @param hooks.gameQuestionsStatus()              what the game currently has loaded
+ * @param hooks.gameStatus()                       { online, state, count, by, players }
  * @param hooks.onSettingsChanged(settings)        push new settings to the game server
  */
 module.exports = function createApi(hooks) {
@@ -83,7 +85,7 @@ module.exports = function createApi(hooks) {
   }));
 
   api.get('/auth/me', requireStaff(), (req, res) => {
-    res.json({ staff: req.session.staff, vaultUntil: req.session.vaultUntil > Date.now() ? req.session.vaultUntil : null });
+    res.json({ staff: req.session.staff, vaultUntil: auth.vaultOpen(req.session) ? req.session.vaultUntil : null });
   });
 
   api.post('/auth/logout', requireStaff(), route(async (req, res) => {
@@ -119,7 +121,7 @@ module.exports = function createApi(hooks) {
   }
 
   async function openVault(req, dek) {
-    const vaultUntil = await auth.unlockVault(req.session.tokenHash, dek);
+    const vaultUntil = await auth.unlockVault(req.session, dek);
     await questionKeys.afterUnlock(dek, req.session.staff.id);
     return vaultUntil;
   }
@@ -295,17 +297,48 @@ module.exports = function createApi(hooks) {
     res.status(409).json({ status: 'already', registration: existing, error: 'Already checked in' });
   }));
 
+  // ─── Public config (participant page, projector, socket address) ───────────
+  const readConfig = async () => {
+    const s = await store.getSettings();
+    return { requireCheckin: s.require_checkin !== false, gameServerUrl: String(s.game_server_url || '') };
+  };
+
+  api.get('/config', route(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await readConfig());
+  }));
+
   // ─── Settings & results (admin) ────────────────────────────────────────────
   api.get('/settings', requireStaff(ADMIN), route(async (req, res) => {
-    const s = await store.getSettings();
-    res.json({ requireCheckin: s.require_checkin !== false });
+    res.json(await readConfig());
   }));
 
   api.put('/settings', small, requireStaff(ADMIN), route(async (req, res) => {
-    check(typeof req.body?.requireCheckin === 'boolean', 'requireCheckin must be true or false');
-    await store.setSetting('require_checkin', req.body.requireCheckin);
-    hooks.onSettingsChanged({ requireCheckin: req.body.requireCheckin });
-    res.json({ requireCheckin: req.body.requireCheckin });
+    const next = {};
+    if (req.body?.requireCheckin !== undefined) {
+      check(typeof req.body.requireCheckin === 'boolean', 'requireCheckin must be true or false');
+      await store.setSetting('require_checkin', req.body.requireCheckin);
+      next.requireCheckin = req.body.requireCheckin;
+    }
+    if (req.body?.gameServerUrl !== undefined) {
+      const url = str(req.body.gameServerUrl, 200).replace(/\/+$/, '');
+      if (url) {
+        let parsed;
+        try { parsed = new URL(url); } catch { /* invalid */ }
+        check(parsed && ['https:', 'http:'].includes(parsed.protocol) && !parsed.search && !parsed.hash,
+          'Game server address must look like https://game.example.com');
+      }
+      await store.setSetting('game_server_url', url);
+      next.gameServerUrl = url;
+    }
+    check(Object.keys(next).length, 'Nothing to change');
+    await hooks.onSettingsChanged(next);
+    res.json(await readConfig());
+  }));
+
+  // Live game server health for staff dashboards.
+  api.get('/game/status', requireStaff(ADMIN, COORD, VOL), route(async (req, res) => {
+    res.json(await hooks.gameStatus());
   }));
 
   api.get('/results/latest.csv', requireStaff(ADMIN), route(async (req, res) => {
@@ -375,13 +408,13 @@ module.exports = function createApi(hooks) {
 
   // The only path from the encrypted bank to the live event: the quiz master decrypts the active
   // questions into the game server's memory. The coordinator then runs the game.
-  api.get('/game/questions-status', requireStaff(QM), (req, res) => {
-    res.json(hooks.gameQuestionsStatus());
-  });
+  api.get('/game/questions-status', requireStaff(QM), route(async (req, res) => {
+    res.json(await hooks.gameStatus());
+  }));
 
   api.post('/game/load-questions', ...qm, route(async (req, res) => {
     const result = await hooks.loadQuestionsIntoGame(dekOf(req), req.session.staff);
-    if (result.error) return res.status(409).json(result);
+    if (result.error) return res.status(result.offline ? 502 : 409).json(result);
     res.json(result);
   }));
 

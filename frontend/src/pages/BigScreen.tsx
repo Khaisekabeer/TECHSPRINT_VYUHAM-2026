@@ -52,7 +52,7 @@ export default function BigScreen() {
     const { hostname, port } = window.location;
     const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
     const host = isLocal ? (serverInfo?.lanAddresses[0] ?? hostname) : hostname;
-    return port && port !== '80' ? `${host}:${port}` : host;
+    return port && port !== '80' && port !== '443' ? `${host}:${port}` : host;
   })();
 
   const online = players.filter(p => p.connected).length;
@@ -113,7 +113,7 @@ function Lobby({ joinAddress, players }: { joinAddress: string; players: any[] }
         </Rise>
 
         <Rise d={260} className="panel panel-lg bracketed" style={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '2.4vw', padding: '2.6vh 2.6vw 2.6vh 2.6vh' }}>
-          <QrCode value={`http://${joinAddress}`} size="24vh" />
+          <QrCode value={`${window.location.protocol}//${joinAddress}`} size="24vh" />
           <div>
             <div className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: '1.4vh' }}>Scan, or open on your phone</div>
             <span className="mono heat" style={{ fontSize: 'clamp(1.6rem, 2.8vw, 3.4rem)', fontWeight: 600, letterSpacing: '-0.02em' }}>

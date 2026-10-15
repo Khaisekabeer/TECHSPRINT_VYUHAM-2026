@@ -76,7 +76,15 @@ function Importer() {
     setBusy(true);
     setMessage(null);
     try {
-      const res = await api('/registrations/import', { method: 'POST', body: { rows: rows.map(mapped) } });
+      // Batches keep each request well under serverless body limits.
+      const all = rows.map(mapped);
+      const res = { imported: 0, skipped: 0, duplicates: 0 };
+      for (let i = 0; i < all.length; i += 2000) {
+        const part = await api('/registrations/import', { method: 'POST', body: { rows: all.slice(i, i + 2000) } });
+        res.imported += part.imported;
+        res.skipped += part.skipped;
+        res.duplicates += part.duplicates;
+      }
       setMessage({ ok: true, text: `Imported ${res.imported} participants${res.skipped ? ` · skipped ${res.skipped} rows without a ticket ID or name` : ''}${res.duplicates ? ` · ${res.duplicates} duplicate ticket IDs merged` : ''}.` });
       reset();
       window.dispatchEvent(new Event('techsprint-participants-changed'));

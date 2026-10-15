@@ -126,7 +126,7 @@ function RecoveryCodeNotice({ code, onDone }: { code: string; onDone: () => void
 
 // ─── Load into game: the only way questions reach the live event ──────────────
 function LoadIntoGame({ guard, refreshKey }: { guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>; refreshKey: number }) {
-  const [status, setStatus] = useState<{ state: string; count: number; by?: string; at?: number } | null>(null);
+  const [status, setStatus] = useState<{ online?: boolean; error?: string; state?: string; count?: number; by?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -142,22 +142,27 @@ function LoadIntoGame({ guard, refreshKey }: { guard: <T>(fn: () => Promise<T>) 
     refresh();
   };
 
-  const inLobby = !status || status.state === 'lobby';
+  const offline = status?.online === false;
+  const inLobby = !status || offline || status.state === 'lobby';
   return (
     <Panel bracketed style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
       <div style={{ flex: '1 1 300px' }}>
-        <div className="eyebrow">Live event</div>
+        <div className="eyebrow">Live event {offline ? <span className="pill pill-bad" style={{ marginLeft: 8 }}>Game server offline</span> : null}</div>
         <div style={{ fontWeight: 600, marginTop: 8 }}>
-          {status?.count ? `${status.count} questions loaded in the game${status.by ? ` by ${status.by}` : ''}` : 'No questions loaded in the game yet'}
+          {offline
+            ? 'The event-day game server is not reachable'
+            : status?.count ? `${status.count} questions loaded in the game${status.by ? ` by ${status.by}` : ''}` : 'No questions loaded in the game yet'}
         </div>
         <p className="dim" style={{ fontSize: '0.82rem', margin: '6px 0 0', lineHeight: 1.5 }}>
-          {inLobby
-            ? 'Loading decrypts the active questions into the game server only. Phones and the projector see each question when it goes live.'
-            : 'The game is running — questions can be loaded again once it is reset to the lobby.'}
+          {offline
+            ? 'On event day, start it on the laptop (npm run game + Cloudflare Tunnel); an admin checks the address in Admin → Overview. You can keep editing questions meanwhile.'
+            : inLobby
+              ? 'Loading decrypts the active questions and sends them straight to the game server. Phones and the projector see each question only when it goes live.'
+              : 'The game is running — questions can be loaded again once it is reset to the lobby.'}
         </p>
         {message && <p role="status" style={{ margin: '8px 0 0', fontSize: '0.88rem', color: 'var(--good)' }}>{message}</p>}
       </div>
-      <button className="btn btn-heat" onClick={load} disabled={busy || !inLobby}>
+      <button className="btn btn-heat" onClick={load} disabled={busy || !inLobby || offline}>
         {busy ? 'Loading…' : status?.count ? 'Reload into game' : 'Load into game →'}
       </button>
     </Panel>

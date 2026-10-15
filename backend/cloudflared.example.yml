@@ -1,0 +1,16 @@
+# Cloudflare Tunnel config for the event-day game server (copy to ~/.cloudflared/config.yml).
+# Publishes http://localhost:3001 (npm run game) at https://game.yourdomain.com.
+#
+# One-time setup (see README → Deployment):
+#   cloudflared tunnel login
+#   cloudflared tunnel create techsprint
+#   cloudflared tunnel route dns techsprint game.yourdomain.com
+# Event day:
+#   cloudflared tunnel run techsprint
+tunnel: techsprint
+credentials-file: C:\Users\<you>\.cloudflared\<TUNNEL-ID>.json
+
+ingress:
+  - hostname: game.yourdomain.com
+    service: http://localhost:3001
+  - service: http_status:404

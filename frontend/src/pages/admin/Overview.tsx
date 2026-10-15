@@ -1,10 +1,82 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { api, downloadFile } from '../../lib/api';
 import { Panel } from '../../components/ui';
 
 interface Recent { id: number; action: 'admit' | 'undo'; at: string; ticketId: string; name: string; college: string | null; by: string | null }
 
 export const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+interface GameStatus { online?: boolean; error?: string; state?: string; count?: number; by?: string; players?: number }
+
+// Where the live game runs on event day (laptop behind Cloudflare Tunnel) and whether it's up.
+function GameServerPanel() {
+  const [url, setUrl] = useState('');
+  const [saved, setSaved] = useState('');
+  const [status, setStatus] = useState<GameStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const refreshStatus = useCallback(() => {
+    api<GameStatus>('/game/status').then(setStatus).catch(err => setStatus({ online: false, error: err.message }));
+  }, []);
+
+  useEffect(() => {
+    api('/settings').then(s => { setUrl(s.gameServerUrl); setSaved(s.gameServerUrl); }).catch(() => {});
+    refreshStatus();
+    const id = setInterval(refreshStatus, 15000);
+    return () => clearInterval(id);
+  }, [refreshStatus]);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    try {
+      const s = await api('/settings', { method: 'PUT', body: { gameServerUrl: url.trim() } });
+      setUrl(s.gameServerUrl);
+      setSaved(s.gameServerUrl);
+      setMessage({ ok: true, text: 'Saved. Pages opened from now on connect to this address (refresh open pages).' });
+      refreshStatus();
+    } catch (err: any) {
+      setMessage({ ok: false, text: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const online = status?.online !== false && !status?.error;
+  return (
+    <Panel bracketed>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <div className="eyebrow">Live game server</div>
+          <h3 style={{ margin: '8px 0 4px', fontSize: '1.1rem' }}>Event-day laptop address</h3>
+          <p className="dim" style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.5, maxWidth: 560 }}>
+            The HTTPS address of the laptop running <span className="mono">npm run game</span> behind Cloudflare Tunnel,
+            e.g. <span className="mono">https://game.yourdomain.com</span>. Leave empty when everything runs on one server.
+          </p>
+        </div>
+        {status && (
+          online
+            ? <span className="pill pill-good">● Online · {status.state} · {status.count ?? 0} questions · {status.players ?? 0} players</span>
+            : <span className="pill pill-bad" title={status.error}>● Offline</span>
+        )}
+      </div>
+      <form onSubmit={save} style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
+        <input className="field field-sm" style={{ flex: '1 1 320px', fontFamily: 'var(--font-mono)' }} value={url}
+          onChange={e => setUrl(e.target.value)} placeholder="https://game.yourdomain.com" aria-label="Game server address"
+          autoCapitalize="none" spellCheck={false} />
+        <button className="btn btn-heat btn-sm" disabled={busy || url.trim() === saved}>{busy ? 'Saving…' : 'Save'}</button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={refreshStatus}>Check</button>
+      </form>
+      {status?.error && <p className="dim" style={{ margin: '10px 0 0', fontSize: '0.82rem' }}>{status.error}</p>}
+      {message && <p role="status" style={{ margin: '10px 0 0', fontSize: '0.85rem', color: message.ok ? 'var(--good)' : 'var(--bad)' }}>{message.text}</p>}
+      <p className="dim" style={{ margin: '12px 0 0', fontSize: '0.82rem' }}>
+        Players join at <span className="mono">{window.location.host}</span> — the QR code on the projector points there.
+      </p>
+    </Panel>
+  );
+}
 
 export default function Overview() {
   const [stats, setStats] = useState<{ total: number; checkedIn: number } | null>(null);
@@ -59,6 +131,8 @@ export default function Overview() {
           <div className="meter" style={{ marginTop: 12 }}><span style={{ width: `${pct}%` }} /></div>
         </Panel>
       </div>
+
+      <GameServerPanel />
 
       <div className="grid-2">
         <Panel>

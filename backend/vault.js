@@ -125,6 +125,13 @@ function decryptQuestion(dek, payload) {
 
 const newDek = () => crypto.randomBytes(32);
 
+// ─── Session-held DEK (serverless) ────────────────────────────────────────────
+// While unlocked, the DEK is stored with the session, sealed under a key derived from the
+// session token. The database keeps only the token's hash, so the row alone can't be opened.
+const sessionKey = token => Buffer.from(crypto.hkdfSync('sha256', Buffer.from(String(token)), Buffer.alloc(0), 'techsprint:session-dek', 32));
+const sealForSession = (token, dek) => seal(sessionKey(token), dek, 'techsprint:session-dek');
+const openForSession = (token, sealed) => open(sessionKey(token), sealed, 'techsprint:session-dek');
+
 module.exports = {
   VaultError,
   serverSecret,
@@ -138,4 +145,6 @@ module.exports = {
   encryptQuestion,
   decryptQuestion,
   newDek,
+  sealForSession,
+  openForSession,
 };
