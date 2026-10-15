@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "seed": "node seed.js",
     "game": "node game-server.js",
-    "game:dev": "nodemon game-server.js"
+    "game:dev": "nodemon game-server.js",
+    "seed:test": "node seed-test-data.js"
   },
   "keywords": [],
   "author": "",

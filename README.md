@@ -111,7 +111,7 @@ Admin → Overview should show the game server **Online**. Players, projector an
 cd backend && npm run dev                 # API + live game on :3001
 cd frontend && npm run dev -- --host      # UI on :5173
 ```
-Leave the game server address empty. For a laptop-only event without Vercel: `npm run build` in `frontend/`, then `HTTPS=true npm start` in `backend/` and open `https://<laptop-ip>:3001`. Docker: `docker compose up --build -d`.
+Leave the game server address empty. Test data: `npm run seed:test` in `backend/` adds 30 dummy tickets (`TEST0001`-`TEST0020` checked in, `TEST0021`-`TEST0030` not) and 10 test questions across the 3 rounds. For a laptop-only event without Vercel: `npm run build` in `frontend/`, then `HTTPS=true npm start` in `backend/` and open `https://<laptop-ip>:3001`. Docker: `docker compose up --build -d`.
 
 ## Questions & scoring
 
