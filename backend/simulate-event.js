@@ -26,7 +26,7 @@ const arg = (name, fallback) => {
   if (!hit) return fallback;
   return hit.includes('=') ? hit.split('=').slice(1).join('=') : true;
 };
-const SERVER = String(arg('server', process.env.SERVER_URL || 'http://localhost:3001')).replace(/\/$/, '');
+const SERVER = String(arg('server', process.env.SERVER_URL || 'http://127.0.0.1:3001')).replace(/\/$/, '');
 const API = String(arg('api', SERVER)).replace(/\/$/, '');
 const PLAYERS = Math.max(1, Number(arg('players', 40)) || 40);
 const AUTO = Boolean(arg('auto', false));

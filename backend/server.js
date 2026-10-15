@@ -30,7 +30,7 @@ handler.use((req, res) => {
   res.status(404).send('Frontend not built. Run "npm run build" in frontend/, or use the Vite dev server on port 5173.');
 });
 
-server.listen(PORT, '0.0.0.0', async () => {
+server.listen(PORT, async () => {
   try {
     await auth.ensureBootstrapAdmin();
     await game.refreshSettings();
