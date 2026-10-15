@@ -24,10 +24,25 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
 (async () => {
   console.log(`Load test: ${PLAYERS} players against ${SERVER}`);
 
-  const login = await fetch(`${SERVER}/api/admin/login`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: PASSWORD }),
+  // Signs in as the bootstrap coordinator ("admin"); override with LOADTEST_USER / LOADTEST_PASSWORD.
+  const login = await fetch(`${SERVER}/api/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username: process.env.LOADTEST_USER || 'admin', password: process.env.LOADTEST_PASSWORD || PASSWORD }),
   }).then(r => r.json());
-  if (!login.success) throw new Error('Host login failed - check ADMIN_PASSWORD');
+  if (!login.token) throw new Error('Staff login failed - set LOADTEST_USER / LOADTEST_PASSWORD');
+
+  // With check-in required, players need admitted tickets: seed LTTEST0000… as checked in.
+  const { requireCheckin } = await fetch(`${SERVER}/api/config`).then(r => r.json());
+  if (requireCheckin) {
+    const { supabase } = require('./db');
+    const now = new Date().toISOString();
+    const rows = Array.from({ length: PLAYERS }, (_, i) => ({
+      ticket_id: `LTTEST${String(i).padStart(4, '0')}`, name: `Load Test ${i}`, checked_in_at: now,
+    }));
+    const { error } = await supabase.from('registrations').upsert(rows, { onConflict: 'ticket_id' });
+    if (error) throw new Error(`Seeding test tickets failed: ${error.message}`);
+    console.log(`Check-in required: seeded ${PLAYERS} checked-in LTTEST tickets`);
+  }
 
   const host = await connect();
   let state = null;
@@ -58,7 +73,7 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   await Promise.all(Array.from({ length: PLAYERS }, async (_, i) => {
     try {
       const socket = await connect();
-      const res = await ask(socket, 'join_game', { name: `LT_${i}` });
+      const res = await ask(socket, 'join_game', { name: `LT_${i}`, ticketId: `LTTEST${String(i).padStart(4, '0')}` });
       if (res.success) players.push({ socket, token: res.token, name: `LT_${i}`, score: 0 });
       else joinErrors.push(res.error);
     } catch (err) {

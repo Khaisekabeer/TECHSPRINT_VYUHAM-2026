@@ -1,48 +1,18 @@
 require('dotenv').config({ quiet: true });
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const db = require('./db');
+const store = require('./store');
+const auth = require('./auth');
+const createApi = require('./api');
 const gameEngine = require('./gameEngine');
 const { ANSWER_GRACE_MS } = gameEngine;
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
-if (!process.env.ADMIN_PASSWORD) console.warn('ADMIN_PASSWORD is not set - using the default "admin"');
-
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
-  maxHttpBufferSize: 16 * 1024, // clients only ever send small messages
-});
-
-app.use(cors());
-app.use(express.json({ limit: '16kb' }));
-
-// ─── Host authentication ──────────────────────────────────────────────────────
-const hostTokens = new Set();
-
-function passwordMatches(password) {
-  if (typeof password !== 'string') return false;
-  const hash = s => crypto.createHash('sha256').update(s).digest();
-  return crypto.timingSafeEqual(hash(password), hash(ADMIN_PASSWORD));
-}
-
-app.post('/api/admin/login', (req, res) => {
-  if (!passwordMatches(req.body?.password)) {
-    return res.status(401).json({ success: false, error: 'Invalid password' });
-  }
-  const token = crypto.randomBytes(24).toString('hex');
-  hostTokens.add(token);
-  res.json({ success: true, token });
-});
-
-// Questions live in Supabase; import them with `npm run seed` (reads ../seed_questions.json).
 
 // ─── Network info for the join screen ─────────────────────────────────────────
 function lanAddresses() {
@@ -51,6 +21,67 @@ function lanAddresses() {
     .filter(a => a && a.family === 'IPv4' && !a.internal)
     .map(a => a.address);
 }
+
+// HTTPS=true serves over TLS so phone cameras work for pass scanning (browsers only allow the
+// camera on secure pages). Uses certs/key.pem + certs/cert.pem, generating a self-signed pair
+// for this machine's addresses on first run.
+function tlsOptions() {
+  const dir = path.join(__dirname, 'certs');
+  const keyFile = path.join(dir, 'key.pem');
+  const certFile = path.join(dir, 'cert.pem');
+  if (!fs.existsSync(keyFile) || !fs.existsSync(certFile)) {
+    const selfsigned = require('selfsigned');
+    const altNames = [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }, ...lanAddresses().map(ip => ({ type: 7, ip }))];
+    const pems = selfsigned.generate([{ name: 'commonName', value: 'TechSprint' }], {
+      days: 365, keySize: 2048, algorithm: 'sha256',
+      extensions: [{ name: 'subjectAltName', altNames }],
+    });
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(keyFile, pems.private);
+    fs.writeFileSync(certFile, pems.cert);
+    console.log('Generated a self-signed certificate in backend/certs/');
+  }
+  return { key: fs.readFileSync(keyFile), cert: fs.readFileSync(certFile) };
+}
+
+const useHttps = process.env.HTTPS === 'true';
+const app = express();
+const server = useHttps ? https.createServer(tlsOptions(), app) : http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  maxHttpBufferSize: 16 * 1024, // clients only ever send small messages
+});
+
+app.use(cors());
+
+// ─── Settings (cached; the coordinator changes them through the API) ──────────
+const settings = { requireCheckin: true };
+async function loadSettings() {
+  const s = await store.getSettings();
+  settings.requireCheckin = s.require_checkin !== false;
+}
+
+// ─── Staff API ────────────────────────────────────────────────────────────────
+app.use('/api', createApi({
+  onQuestionsChanged() {
+    // Questions can change freely in the lobby; during a game the running list is kept.
+    if (gameEngine.state !== 'lobby') return;
+    db.getAllQuestions()
+      .then(qs => { gameEngine.setQuestions(qs); broadcastState(); })
+      .catch(err => console.error(err.message));
+  },
+  onSettingsChanged(next) {
+    Object.assign(settings, next);
+    io.emit('config', publicConfig());
+  },
+}));
+
+// What the participant page needs to know before joining.
+const publicConfig = () => ({ requireCheckin: settings.requireCheckin });
+app.get('/api/config', (req, res) => res.json(publicConfig()));
+
+// Questions live in Supabase; the quiz master manages them in Admin → Questions
+// (or import a file with `npm run seed`).
 
 // ─── Broadcast helpers ────────────────────────────────────────────────────────
 const broadcastState = () => io.emit('game_state', gameEngine.getState());
@@ -158,11 +189,16 @@ const hostActions = {
 };
 
 io.on('connection', (socket) => {
-  // Host and big screen. The host must present a token from /api/admin/login.
-  handle(socket, 'join_role', (callback, role, token) => {
+  // Host console (quiz master or coordinator staff session) and the projector screen.
+  handle(socket, 'join_role', async (callback, role, token) => {
     if (role === 'host') {
-      if (!hostTokens.has(token)) return callback({ error: 'Session expired - please sign in again' });
+      const session = await auth.getSession(token);
+      if (!session) return callback({ error: 'Session expired - please sign in again' });
+      if (!['quizmaster', 'coordinator'].includes(session.staff.role)) {
+        return callback({ error: 'Only the quiz master or a coordinator can run the game' });
+      }
       socket.data.isHost = true;
+      socket.data.staff = session.staff;
     } else if (role !== 'bigscreen') {
       return callback({ error: 'Unknown role' });
     }
@@ -179,13 +215,49 @@ io.on('connection', (socket) => {
     if (!socket.data.isHost) return callback({ error: 'Not authorised' });
     const run = hostActions[action];
     if (!run) return callback({ error: 'Unknown action' });
-    console.log('Host action:', action);
+    console.log(`Host action: ${action} (${socket.data.staff?.displayName})`);
     await run(callback, data);
   });
 
-  handle(socket, 'join_game', (callback, data) => {
+  // When check-in is required, players join with the ticket ID from their pass, and only
+  // tickets a volunteer has admitted can play.
+  handle(socket, 'join_game', async (callback, data) => {
+    if (!settings.requireCheckin) {
+      if (gameEngine.state !== 'lobby') return callback({ error: 'Game already started' });
+      const result = gameEngine.addPlayer(socket.id, data?.name, data?.team);
+      if (result.error) return callback(result);
+      socket.join('players');
+      broadcastPlayers();
+      return callback(result);
+    }
+
+    const ticketId = store.normalizeTicketId(data?.ticketId);
+    if (!ticketId) return callback({ error: 'Enter the ticket ID printed on your pass' });
+
+    // Same ticket on a new phone: take the seat back if the old device dropped off.
+    const reclaimed = gameEngine.reclaimByTicket(socket.id, ticketId);
+    if (reclaimed?.error) return callback(reclaimed);
+    if (reclaimed) {
+      const old = reclaimed.previousSocketId && io.sockets.sockets.get(reclaimed.previousSocketId);
+      if (old && old.id !== socket.id) old.disconnect(true);
+      socket.join('players');
+      broadcastPlayers();
+      return callback({ success: true, player: reclaimed.player, token: reclaimed.token, reclaimed: true });
+    }
+
     if (gameEngine.state !== 'lobby') return callback({ error: 'Game already started' });
-    const result = gameEngine.addPlayer(socket.id, data?.name, data?.team);
+    let reg;
+    try {
+      reg = await store.getRegistration(ticketId);
+    } catch (err) {
+      console.error(err.message);
+      return callback({ error: 'Could not verify your ticket right now — try again' });
+    }
+    if (!reg) return callback({ error: 'Ticket not found — check the ID on your pass' });
+    if (!reg.checkedInAt) return callback({ error: 'Not checked in yet — show your pass at the entry desk first' });
+
+    const displayName = (typeof data?.name === 'string' && data.name.trim()) || reg.name.trim().split(/\s+/)[0];
+    const result = gameEngine.addPlayer(socket.id, displayName.slice(0, 20), '', { ticketId, fullName: reg.name });
     if (result.error) return callback(result);
     socket.join('players');
     broadcastPlayers();
@@ -242,15 +314,23 @@ app.use((req, res) => {
 const PORT = Number(process.env.PORT) || 3001;
 
 server.listen(PORT, '0.0.0.0', async () => {
+  const scheme = useHttps ? 'https' : 'http';
+  try {
+    await auth.ensureBootstrapCoordinator();
+    await loadSettings();
+    store.deleteExpiredSessions().catch(() => {});
+  } catch (err) {
+    console.error(`Staff/settings setup failed: ${err.message}`);
+  }
   try {
     const qs = await db.getAllQuestions();
     gameEngine.setQuestions(qs);
     console.log(`Loaded ${qs.length} questions from Supabase`);
   } catch (err) {
-    console.error(`${err.message} - use "Load Questions" in the host console to retry`);
+    console.error(`${err.message} - use "Reload questions" in the host console to retry`);
   }
-  console.log(`Backend server running on http://0.0.0.0:${PORT}`);
-  for (const ip of lanAddresses()) console.log(`  Network: http://${ip}:${PORT}`);
+  console.log(`Server running on ${scheme}://0.0.0.0:${PORT}  (check-in required to play: ${settings.requireCheckin})`);
+  for (const ip of lanAddresses()) console.log(`  Network: ${scheme}://${ip}:${PORT}`);
 });
 
 process.on('unhandledRejection', err => console.error('[unhandledRejection]', err));

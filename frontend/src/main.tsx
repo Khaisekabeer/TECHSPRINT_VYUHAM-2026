@@ -18,6 +18,7 @@ import { SocketProvider } from './contexts/SocketContext'
 import ParticipantView from './pages/ParticipantView'
 import HostConsole from './pages/HostConsole'
 import BigScreen from './pages/BigScreen'
+import Admin from './pages/Admin'
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
@@ -27,6 +28,7 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
           <Route path="/" element={<ParticipantView />} />
           <Route path="/host" element={<HostConsole />} />
           <Route path="/screen" element={<BigScreen />} />
+          <Route path="/admin" element={<Admin />} />
         </Routes>
       </BrowserRouter>
     </SocketProvider>

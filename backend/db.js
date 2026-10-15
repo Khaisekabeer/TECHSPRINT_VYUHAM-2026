@@ -49,6 +49,7 @@ function toParticipantRow(gameId, p) {
     drone_assists: p.droneAssists,
     total_response_ms: p.totalResponseTime,
     final_rank: p.finalRank ?? null,
+    ticket_id: p.ticketId ?? null,
     updated_at: new Date().toISOString(),
   };
 }

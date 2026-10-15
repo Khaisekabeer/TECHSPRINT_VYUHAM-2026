@@ -1,14 +1,9 @@
-import React, { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
+import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Brand, Rings, Rise, TimerRing, Toast } from '../components/ui';
-
-const TOKEN_KEY = 'vyuham_host_token';
-const session = {
-  get: () => { try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; } },
-  set: (v: string) => { try { sessionStorage.setItem(TOKEN_KEY, v); } catch { /* ignore */ } },
-  clear: () => { try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ } },
-};
+import { Brand, Panel as SharedPanel, TimerRing, Toast } from '../components/ui';
+import StaffLogin from '../components/StaffLogin';
+import { ROLE_LABEL, session, signOut, useStaffSession } from '../lib/api';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby',
@@ -20,8 +15,8 @@ const PHASE_LABEL: Record<string, string> = {
 
 export default function HostConsole() {
   const { socket, isConnected } = useSocket();
-  const [token, setToken] = useState<string | null>(session.get);
-  const [password, setPassword] = useState('');
+  const current = useStaffSession();
+  const token = current && current.staff.role !== 'volunteer' ? current.token : null;
   const [gameState, setGameState] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
@@ -39,7 +34,6 @@ export default function HostConsole() {
 
   const logout = (msg?: string) => {
     session.clear();
-    setToken(null);
     if (msg) showToast(msg);
   };
 
@@ -57,24 +51,6 @@ export default function HostConsole() {
       socket.off('answer_count');
     };
   }, [socket, token, isConnected]);
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const url = import.meta.env.DEV ? `http://${window.location.hostname}:3001/api/admin/login` : '/api/admin/login';
-    try {
-      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
-      const data = await res.json();
-      if (data.success) {
-        session.set(data.token);
-        setToken(data.token);
-        setPassword('');
-      } else {
-        showToast('Invalid password');
-      }
-    } catch {
-      showToast('Login failed — check your connection');
-    }
-  };
 
   const hostAction = (action: string, data: any = null, onSuccess?: (res: any) => void) => {
     socket.emit('host_action', action, data, (res: any) => {
@@ -106,30 +82,26 @@ export default function HostConsole() {
     return Math.max(0, gameState.currentQuestionIndex);
   })();
 
-  // ─── Login ─────────────────────────────────────────────────────────────────
+  // ─── Sign-in: quiz master or coordinator ───────────────────────────────────
+  if (!current) {
+    return (
+      <>
+        {toast && <Toast msg={toast} />}
+        <StaffLogin title="Host" accent="Command" note="Quiz master or coordinator sign-in." />
+      </>
+    );
+  }
   if (!token) {
     return (
-      <div className="stage stage-grid" data-level="1" style={{ alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-        {toast && <Toast msg={toast} />}
-        <Rings size="min(140vw, 820px)" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }} />
-        <Rise className="panel bracketed" style={{ width: '100%', maxWidth: 400, padding: '36px 32px' }}>
-          <Brand />
-          <h1 className="display" style={{ fontSize: '3.4rem', margin: '26px 0 6px' }}>Host<br /><span className="heat">Command</span></h1>
-          <p className="dim" style={{ margin: '0 0 26px', fontSize: '0.95rem' }}>Restricted. Quiz master access only.</p>
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <label htmlFor="host-password" className="eyebrow">Admin password</label>
-            <input
-              id="host-password"
-              className="field"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-            />
-            <button type="submit" className="btn btn-heat btn-block">Sign in →</button>
-          </form>
-        </Rise>
+      <div className="stage" style={{ alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <SharedPanel bracketed style={{ maxWidth: 420, textAlign: 'center', padding: '32px 28px' }}>
+          <h1 className="display" style={{ fontSize: '2.4rem', margin: '0 0 10px' }}>No access</h1>
+          <p className="dim" style={{ margin: '0 0 20px' }}>Volunteers can't run the game. Head to the check-in scanner instead.</p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <a className="btn btn-heat" href="/admin">Open check-in</a>
+            <button className="btn btn-ghost" onClick={signOut}>Sign out</button>
+          </div>
+        </SharedPanel>
       </div>
     );
   }
@@ -148,11 +120,14 @@ export default function HostConsole() {
 
       <header style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '14px clamp(16px, 3vw, 36px)', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
         <Brand />
-        <span className="eyebrow" style={{ borderLeft: '1px solid var(--line-strong)', paddingLeft: 16 }}>Host command</span>
+        <span className="eyebrow">Host command</span>
         <span style={{ flex: 1 }} />
         <span className="chip"><span className={`dot ${isConnected ? 'dot-live' : 'dot-off'}`} />{isConnected ? 'Connected' : 'Offline'}</span>
         <button className="btn btn-danger btn-sm" onClick={resetGame}>Reset game</button>
-        <button className="btn btn-ghost btn-sm" onClick={() => logout()}>Sign out</button>
+        <span className="pill pill-dark">{ROLE_LABEL[current.staff.role]}</span>
+        <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{current.staff.displayName}</span>
+        <a className="btn btn-ghost btn-sm" href="/admin">Admin</a>
+        <button className="btn btn-ghost btn-sm" onClick={signOut}>Sign out</button>
       </header>
 
       <div className="host-grid">

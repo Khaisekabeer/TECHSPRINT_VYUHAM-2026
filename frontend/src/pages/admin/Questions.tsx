@@ -1,0 +1,310 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import { api, ApiError } from '../../lib/api';
+import { OPTION_LABELS, Panel } from '../../components/ui';
+
+interface Question {
+  id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
+  options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
+}
+type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
+
+const LEVELS = [
+  { level: 1, name: 'Warm-up', multiplier: 1 },
+  { level: 2, name: 'Core Tech', multiplier: 2 },
+  { level: 3, name: 'Brain Burner', multiplier: 3 },
+];
+const blank = (level: number): Draft => ({
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true,
+});
+
+export default function Questions() {
+  const [vaultUntil, setVaultUntil] = useState<number | null>(null);
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    api('/auth/me').then(r => setVaultUntil(r.vaultUntil)).catch(() => {}).finally(() => setChecked(true));
+  }, []);
+
+  // Re-lock in the UI when the server-side unlock expires.
+  useEffect(() => {
+    if (!vaultUntil) return;
+    const id = setTimeout(() => setVaultUntil(null), Math.max(0, vaultUntil - Date.now()));
+    return () => clearTimeout(id);
+  }, [vaultUntil]);
+
+  if (!checked) return null;
+  if (!vaultUntil || vaultUntil <= Date.now()) return <VaultLock onUnlock={setVaultUntil} />;
+  return <QuestionBank vaultUntil={vaultUntil} onLocked={() => setVaultUntil(null)} />;
+}
+
+// ─── Second sign-in: quiz master PIN ──────────────────────────────────────────
+function VaultLock({ onUnlock }: { onUnlock: (until: number) => void }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const r = await api('/auth/vault', { method: 'POST', body: { pin } });
+      onUnlock(r.vaultUntil);
+    } catch (err: any) {
+      setError(err.message);
+      setPin('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Panel bracketed className="panel-lg" style={{ maxWidth: 420, margin: '24px auto', padding: '34px 30px', textAlign: 'center' }}>
+      <div style={{ fontSize: '2rem' }} aria-hidden="true">🔒</div>
+      <div className="eyebrow" style={{ marginTop: 10 }}>Confidential</div>
+      <h2 className="display" style={{ fontSize: '2.6rem', margin: '8px 0 8px' }}>Question bank</h2>
+      <p className="dim" style={{ margin: '0 0 22px', fontSize: '0.9rem', lineHeight: 1.5 }}>
+        Enter your quiz master PIN. The bank re-locks automatically after 30 minutes.
+      </p>
+      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <input className="field" type="password" inputMode="numeric" autoComplete="one-time-code" value={pin}
+          onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} aria-label="PIN" autoFocus
+          style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '1.6rem', letterSpacing: '0.5em' }} />
+        <button className="btn btn-heat btn-block" disabled={busy || pin.length < 4}>{busy ? 'Checking…' : 'Unlock'}</button>
+        {error && <p role="alert" className="error-text">{error}</p>}
+      </form>
+    </Panel>
+  );
+}
+
+// ─── Bank ─────────────────────────────────────────────────────────────────────
+function QuestionBank({ vaultUntil, onLocked }: { vaultUntil: number; onLocked: () => void }) {
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [level, setLevel] = useState(1);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [error, setError] = useState('');
+  const [timer, setTimer] = useState('');
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Any 423 means the server locked the bank (timeout) — go back to the PIN screen.
+  const guard = useCallback(async <T,>(fn: () => Promise<T>) => {
+    setError('');
+    try {
+      return await fn();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 423) onLocked();
+      else setError((err as Error).message);
+      return undefined;
+    }
+  }, [onLocked]);
+
+  const load = useCallback(() => guard(async () => setQuestions(await api<Question[]>('/questions'))), [guard]);
+  useEffect(() => { load(); }, [load]);
+
+  const inLevel = questions.filter(q => q.level === level);
+  const lock = async () => { await api('/auth/vault/lock', { method: 'POST' }).catch(() => {}); onLocked(); };
+  const left = Math.max(0, Math.round((vaultUntil - now) / 1000));
+
+  const move = (q: Question, direction: 'up' | 'down') =>
+    guard(async () => { await api(`/questions/${q.id}/move`, { method: 'POST', body: { direction } }); await load(); });
+  const remove = (q: Question) => {
+    if (!confirm(`Delete this question?\n\n${q.text}`)) return;
+    guard(async () => { await api(`/questions/${q.id}`, { method: 'DELETE' }); await load(); });
+  };
+  const applyTimer = (e: React.FormEvent) => {
+    e.preventDefault();
+    const seconds = Number(timer);
+    if (!confirm(`Set every Level ${level} question to ${seconds} seconds?`)) return;
+    guard(async () => { await api(`/levels/${level}/timer`, { method: 'PUT', body: { seconds } }); setTimer(''); await load(); });
+  };
+
+  return (
+    <>
+      <Panel style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <span className="pill pill-good">🔓 Unlocked</span>
+        <span className="dim" style={{ fontSize: '0.88rem' }}>Re-locks in <span className="mono">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</span></span>
+        <span style={{ flex: 1 }} />
+        <span className="dim" style={{ fontSize: '0.85rem' }}>{questions.filter(q => q.isActive).length} active of {questions.length} questions</span>
+        <button className="btn btn-ghost btn-sm" onClick={lock}>Lock now</button>
+      </Panel>
+
+      <nav className="tabs" aria-label="Levels">
+        {LEVELS.map(l => (
+          <button key={l.level} className={`tab${level === l.level ? ' active' : ''}`} onClick={() => { setLevel(l.level); setDraft(null); }}>
+            L{l.level} · {l.name}<span className="count">{questions.filter(q => q.level === l.level).length}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="grid-2" style={{ alignItems: 'end' }}>
+        <Panel>
+          <div className="eyebrow">Level {level} timer</div>
+          <form onSubmit={applyTimer} style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center' }}>
+            <input className="field field-sm" type="number" min={5} max={300} placeholder="Seconds" value={timer}
+              onChange={e => setTimer(e.target.value)} style={{ maxWidth: 140 }} aria-label={`Seconds for every level ${level} question`} />
+            <button className="btn btn-ghost btn-sm" disabled={!timer || Number(timer) < 5 || Number(timer) > 300}>Apply to all in level</button>
+          </form>
+          <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>Or set a timer per question when editing it. Points ×{LEVELS[level - 1].multiplier} in this level.</p>
+        </Panel>
+        <div style={{ textAlign: 'right' }}>
+          <button className="btn btn-heat" onClick={() => setDraft(blank(level))} disabled={!!draft && !draft.id}>+ Add question to level {level}</button>
+        </div>
+      </div>
+
+      {error && <p role="alert" className="error-text" style={{ textAlign: 'left' }}>{error}</p>}
+
+      {draft && !draft.id && (
+        <Editor draft={draft} onCancel={() => setDraft(null)}
+          onSave={d => guard(async () => { await api('/questions', { method: 'POST', body: d }); setDraft(null); await load(); })} />
+      )}
+
+      {inLevel.length === 0 && !draft && (
+        <Panel style={{ textAlign: 'center', padding: '36px 20px' }}>
+          <p className="dim" style={{ margin: 0 }}>No questions in this level yet.</p>
+        </Panel>
+      )}
+
+      {inLevel.map((q, i) => (
+        draft?.id === q.id ? (
+          <Editor key={q.id} draft={draft} onCancel={() => setDraft(null)}
+            onSave={d => guard(async () => { await api(`/questions/${q.id}`, { method: 'PUT', body: d }); setDraft(null); await load(); })} />
+        ) : (
+          <Panel key={q.id} style={{ opacity: q.isActive ? 1 : 0.55 }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              <span className="display faint" style={{ fontSize: '2rem', width: 36 }}>{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ margin: '2px 0 12px', fontWeight: 600, fontSize: '1.05rem', lineHeight: 1.4 }}>{q.text}</p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
+                  {q.options.map((o, oi) => (
+                    <div key={oi} data-opt={oi} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px 6px 6px', borderRadius: 8, fontSize: '0.88rem',
+                      border: '1px solid', borderColor: o === q.correctAnswer ? 'var(--good)' : 'var(--line)',
+                      background: o === q.correctAnswer ? 'color-mix(in srgb, var(--good) 8%, var(--ink-0))' : 'var(--ink-0)',
+                    }}>
+                      <span className="display" style={{ width: 24, height: 24, borderRadius: 5, display: 'grid', placeItems: 'center', background: 'var(--opt)', color: 'var(--on-opt)', fontSize: '1rem' }}>
+                        {OPTION_LABELS[oi]}
+                      </span>
+                      <span style={{ flex: 1 }}>{o}</span>
+                      {o === q.correctAnswer && <strong style={{ color: 'var(--good)' }}>✓</strong>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                  <span className="pill">⏱ {q.timeLimit}s</span>
+                  <span className="pill">{q.points} pts</span>
+                  <span className="pill">{q.type === 'tf' ? 'True / False' : 'Multiple choice'}</span>
+                  {!q.isActive && <span className="pill pill-warn">Hidden from game</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setDraft({ ...q, options: q.type === 'mcq' ? [...q.options, '', '', ''].slice(0, 4) : q.options })}>Edit</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => move(q, 'up')} disabled={i === 0} aria-label="Move up">↑</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => move(q, 'down')} disabled={i === inLevel.length - 1} aria-label="Move down">↓</button>
+                <button className="btn btn-danger btn-sm" onClick={() => remove(q)}>Delete</button>
+              </div>
+            </div>
+          </Panel>
+        )
+      ))}
+    </>
+  );
+}
+
+// ─── Editor ───────────────────────────────────────────────────────────────────
+function Editor({ draft, onSave, onCancel }: { draft: Draft; onSave: (d: Draft) => Promise<unknown>; onCancel: () => void }) {
+  const [d, setD] = useState<Draft>(draft);
+  const [saving, setSaving] = useState(false);
+  const options = d.type === 'tf' ? ['True', 'False'] : d.options;
+  const filled = options.map(o => o.trim()).filter(Boolean);
+
+  const setOption = (i: number, value: string) => {
+    const next = [...d.options];
+    const wasCorrect = d.correctAnswer === d.options[i];
+    next[i] = value;
+    setD({ ...d, options: next, correctAnswer: wasCorrect ? value : d.correctAnswer });
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    await onSave({ ...d, options: d.type === 'tf' ? ['True', 'False'] : filled, correctAnswer: d.correctAnswer.trim() });
+    setSaving(false);
+  };
+
+  return (
+    <Panel bracketed className="panel-lg">
+      <form onSubmit={submit}>
+        <div className="eyebrow">{d.id ? 'Edit question' : 'New question'}</div>
+        <div className="form-grid" style={{ marginTop: 14 }}>
+          <div className="form-row">
+            <label className="eyebrow" htmlFor="q-level">Level</label>
+            <select id="q-level" className="field field-sm" value={d.level} onChange={e => setD({ ...d, level: Number(e.target.value) })}>
+              {LEVELS.map(l => <option key={l.level} value={l.level}>Level {l.level} · {l.name}</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label className="eyebrow" htmlFor="q-type">Type</label>
+            <select id="q-type" className="field field-sm" value={d.type}
+              onChange={e => setD({ ...d, type: e.target.value as Draft['type'], correctAnswer: '', options: e.target.value === 'tf' ? ['True', 'False'] : ['', '', '', ''] })}>
+              <option value="mcq">Multiple choice</option>
+              <option value="tf">True / False</option>
+            </select>
+          </div>
+          <div className="form-row">
+            <label className="eyebrow" htmlFor="q-time">Timer (seconds)</label>
+            <input id="q-time" className="field field-sm" type="number" min={5} max={300} value={d.timeLimit}
+              onChange={e => setD({ ...d, timeLimit: Number(e.target.value) })} required />
+          </div>
+          <div className="form-row">
+            <label className="eyebrow" htmlFor="q-points">Base points</label>
+            <input id="q-points" className="field field-sm" type="number" min={100} max={10000} step={50} value={d.points}
+              onChange={e => setD({ ...d, points: Number(e.target.value) })} required />
+          </div>
+        </div>
+
+        <div className="form-row" style={{ marginTop: 14 }}>
+          <label className="eyebrow" htmlFor="q-text">Question</label>
+          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={500} required />
+        </div>
+
+        <fieldset style={{ border: 0, padding: 0, margin: '16px 0 0' }}>
+          <legend className="eyebrow" style={{ marginBottom: 10 }}>Options — tick the correct answer</legend>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 10 }}>
+            {options.map((o, i) => (
+              <div key={i} data-opt={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="display" style={{ width: 34, height: 40, borderRadius: 8, display: 'grid', placeItems: 'center', background: 'var(--opt)', color: 'var(--on-opt)', fontSize: '1.3rem', flexShrink: 0 }}>
+                  {OPTION_LABELS[i]}
+                </span>
+                {d.type === 'tf' ? (
+                  <span style={{ flex: 1, fontWeight: 600 }}>{o}</span>
+                ) : (
+                  <input className="field field-sm" value={o} onChange={e => setOption(i, e.target.value)} maxLength={160}
+                    placeholder={i < 2 ? `Option ${OPTION_LABELS[i]} (required)` : `Option ${OPTION_LABELS[i]} (optional)`} required={i < 2} />
+                )}
+                <input type="radio" name="correct" aria-label={`Option ${OPTION_LABELS[i]} is correct`} checked={!!o.trim() && d.correctAnswer === o}
+                  disabled={!o.trim()} onChange={() => setD({ ...d, correctAnswer: o })} style={{ width: 20, height: 20, accentColor: 'var(--good)' }} />
+              </div>
+            ))}
+          </div>
+        </fieldset>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, fontSize: '0.9rem' }}>
+          <input type="checkbox" checked={d.isActive} onChange={e => setD({ ...d, isActive: e.target.checked })} style={{ width: 18, height: 18 }} />
+          Include in the game (untick to keep it as a draft)
+        </label>
+
+        <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
+          <button type="submit" className="btn btn-heat" disabled={saving || !d.correctAnswer || !options.includes(d.correctAnswer)}>
+            {saving ? 'Saving…' : d.id ? 'Save changes' : 'Add question'}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancel</button>
+        </div>
+      </form>
+    </Panel>
+  );
+}

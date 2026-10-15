@@ -97,6 +97,16 @@ export function Spinner({ label }: { label: string }) {
   );
 }
 
+export function Panel({ children, style, bracketed, className = '' }: {
+  children: ReactNode; style?: CSSProperties; bracketed?: boolean; className?: string;
+}) {
+  return (
+    <section className={`panel${bracketed ? ' bracketed' : ''} ${className}`} style={{ padding: '20px 22px', ...style }}>
+      {children}
+    </section>
+  );
+}
+
 // Staggered entrance helper: <Rise d={120}>…</Rise>
 export function Rise({ d = 0, as: Tag = 'div', className = '', style, children }: {
   d?: number; as?: 'div' | 'span' | 'p' | 'h1' | 'h2'; className?: string; style?: CSSProperties; children: ReactNode;

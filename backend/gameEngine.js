@@ -59,20 +59,28 @@ class GameEngine {
     return this.players[this.sockets[socketId]];
   }
 
-  addPlayer(socketId, rawName, rawTeam) {
+  playerByTicket(ticketId) {
+    return ticketId ? Object.values(this.players).find(p => p.ticketId === ticketId) : undefined;
+  }
+
+  // ticket: { ticketId, fullName } when check-in is required, otherwise null.
+  addPlayer(socketId, rawName, rawTeam, ticket = null) {
     if (this.sockets[socketId]) return { error: 'Already joined' };
     const name = typeof rawName === 'string' ? rawName.trim() : '';
     if (!name || name.length > MAX_NAME_LENGTH) return { error: `Name must be 1-${MAX_NAME_LENGTH} characters` };
     const team = typeof rawTeam === 'string' ? rawTeam.trim().slice(0, 30) : '';
 
+    if (ticket && this.playerByTicket(ticket.ticketId)) return { error: 'This ticket is already playing on another device' };
     const isDuplicate = Object.values(this.players).some(p => p.name.toLowerCase() === name.toLowerCase());
-    if (isDuplicate) return { error: 'Name already taken' };
+    if (isDuplicate) return { error: 'That display name is taken — pick another' };
 
     const player = {
       id: randomUUID(), // participants.id in Supabase
       token: randomBytes(16).toString('hex'),
       socketId,
       connected: true,
+      ticketId: ticket?.ticketId ?? null,
+      fullName: ticket?.fullName ?? null,
       name,
       team,
       score: 0,
@@ -96,6 +104,16 @@ class GameEngine {
     player.connected = true;
     this.sockets[socketId] = player.id;
     return { success: true, player: this.privateView(player), previousSocketId };
+  }
+
+  // A checked-in player on a new device (lost the rejoin token) reclaims their seat by ticket,
+  // but only while their old device is disconnected.
+  reclaimByTicket(socketId, ticketId) {
+    const player = this.playerByTicket(ticketId);
+    if (!player) return null;
+    if (player.connected) return { error: 'This ticket is already playing on another device' };
+    const result = this.rejoin(socketId, player.token);
+    return result.error ? result : { ...result, token: player.token };
   }
 
   disconnect(socketId) {

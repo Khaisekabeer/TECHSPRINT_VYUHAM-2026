@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Brand, Rings, Rise, Spinner, TimerRing, OPTION_LABELS } from '../components/ui';
+import { API_BASE } from '../lib/api';
 import confetti from 'canvas-confetti';
 
 const TOKEN_KEY = 'vyuham_player_token';
@@ -19,6 +20,9 @@ const screenPad: CSSProperties = { width: '100%', maxWidth: 440, margin: '0 auto
 export default function ParticipantView() {
   const { socket, isConnected } = useSocket();
   const [name, setName] = useState('');
+  const [ticketId, setTicketId] = useState('');
+  const [requireCheckin, setRequireCheckin] = useState(true);
+  const [joining, setJoining] = useState(false);
   const [gameState, setGameState] = useState<any>(null);
   const [playerInfo, setPlayerInfo] = useState<any>(null);
   const [answerResult, setAnswerResult] = useState<any>(null);
@@ -93,11 +97,22 @@ export default function ParticipantView() {
     });
   }, [socket, isConnected]);
 
+  // Whether players join with a ticket ID (check-in required) or just a name.
+  useEffect(() => {
+    fetch(`${API_BASE}/api/config`).then(r => r.json()).then(c => setRequireCheckin(c.requireCheckin !== false)).catch(() => {});
+    const onConfig = (c: any) => setRequireCheckin(c.requireCheckin !== false);
+    socket.on('config', onConfig);
+    return () => { socket.off('config', onConfig); };
+  }, [socket]);
+
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (requireCheckin ? !ticketId.trim() : !name.trim()) return;
     setMessage('');
-    socket.emit('join_game', { name: name.trim() }, (res: any) => {
+    setJoining(true);
+    const payload = requireCheckin ? { ticketId: ticketId.trim(), name: name.trim() } : { name: name.trim() };
+    socket.emit('join_game', payload, (res: any) => {
+      setJoining(false);
       if (res.success) {
         storage.set(res.token);
         setPlayerInfo(res.player);
@@ -165,7 +180,28 @@ export default function ParticipantView() {
 
           <Rise d={340}>
             <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <label htmlFor="player-name" className="eyebrow">Your call sign</label>
+              {requireCheckin && (
+                <>
+                  <label htmlFor="player-ticket" className="eyebrow">Ticket ID (on your pass)</label>
+                  <input
+                    id="player-ticket"
+                    className="field"
+                    type="text"
+                    value={ticketId}
+                    onChange={(e) => setTicketId(e.target.value.toUpperCase())}
+                    maxLength={40}
+                    placeholder="e.g. MMP49081761"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
+                    style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}
+                  />
+                </>
+              )}
+              <label htmlFor="player-name" className="eyebrow">
+                {requireCheckin ? 'Leaderboard name (optional)' : 'Your call sign'}
+              </label>
               <input
                 id="player-name"
                 className="field"
@@ -173,11 +209,13 @@ export default function ParticipantView() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={20}
-                placeholder="Name or nickname"
+                placeholder={requireCheckin ? 'Defaults to your first name' : 'Name or nickname'}
                 autoComplete="nickname"
-                required
+                required={!requireCheckin}
               />
-              <button type="submit" className="btn btn-heat btn-lg btn-block">Join game →</button>
+              <button type="submit" className="btn btn-heat btn-lg btn-block" disabled={joining}>
+                {joining ? 'Checking ticket…' : 'Join game →'}
+              </button>
               {message && <p role="alert" className="error-text">{message}</p>}
             </form>
           </Rise>
