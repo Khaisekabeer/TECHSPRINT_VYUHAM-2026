@@ -25,7 +25,7 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] },
 const game = createGame(io, { serverInfo: () => ({ lanAddresses: [], port: null }) });
 
 app.get('/', (req, res) => res.type('text').send('TechSprint live game server is running.'));
-app.get('/health', (req, res) => res.json({ ok: true, state: game.status().state }));
+app.get('/health', (req, res) => res.json({ ok: true, state: game.status().state, ...game.publicConfig() }));
 
 // ─── Internal endpoints, called only by the admin API (shared secret) ──────────
 const internal = express.Router();

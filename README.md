@@ -140,6 +140,22 @@ Scoring: `points × level multiplier (1/2/3)`, scaled from 100% (instant) to 50%
 - [ ] Test with 2-3 phones before the crowd arrives
 - [ ] Supabase project is active (free projects pause after a week of inactivity)
 
+## Event simulation
+
+Rehearse the event with bot players that behave like a real crowd: different speeds and accuracy, a few who skip questions, late joiners and phones that drop and reconnect. The quiz master loads the questions first.
+
+```bash
+cd backend
+npm run simulate                                # 40 bots join; you conduct from /host and watch /screen
+node simulate-event.js --players=100            # more bots
+SIM_USER=... SIM_PASSWORD=... node simulate-event.js --auto   # the script conducts the whole game
+```
+
+- With check-in required, the bots use tickets `SIM0001…`, added as checked in (remove them in the Supabase dashboard afterwards).
+- Bots answer the test questions from `npm run seed:test` correctly according to their skill; other questions at random.
+- Bots rejoin after a game reset, so you can run several rounds. Event-day server: `--server=https://game.yourdomain.com`.
+- `--auto` options: `--lobby=10`, `--intro=4`, `--reveal=6` (seconds). Results are saved to Supabase like a real game.
+
 ## Load test
 
 ```bash

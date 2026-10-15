@@ -56,7 +56,7 @@ async function check(promise, label) {
   return data;
 }
 
-(async () => {
+async function main() {
   await check(supabase.from('registrations').upsert(REGISTRATIONS, { onConflict: 'ticket_id' }), 'Adding registrations');
   console.log(`Registrations: ${REGISTRATIONS.length} (TEST0001-TEST0020 checked in, TEST0021-TEST0030 not yet)`);
 
@@ -74,7 +74,13 @@ async function check(promise, label) {
   const byLevel = [1, 2, 3].map(l => rows.filter(r => r.level === l).length).join(' / ');
   console.log(`Questions: added ${rows.length} (round 1 / 2 / 3: ${byLevel}); bank now has ${existing.length + rows.length}`);
   process.exit(0);
-})().catch(err => {
-  console.error(err.message);
-  process.exit(1);
-});
+}
+
+module.exports = { QUESTIONS }; // used by simulate-event.js as the bots' answer key
+
+if (require.main === module) {
+  main().catch(err => {
+    console.error(err.message);
+    process.exit(1);
+  });
+}
