@@ -129,9 +129,12 @@ class GameEngine {
   }
 
   // The player's result for the current/last question, used to restore their screen on rejoin.
+  // While the question is live only the chosen option is returned: right/wrong waits for the reveal.
   answerFor(player) {
     const a = this.answers[player.id];
-    return a ? { answer: a.answer, success: true, isCorrect: a.isCorrect, points: a.pointsEarned, badge: a.badge } : null;
+    if (!a) return null;
+    if (this.state === 'question') return { answer: a.answer, success: true };
+    return { answer: a.answer, success: true, isCorrect: a.isCorrect, points: a.pointsEarned, badge: a.badge };
   }
 
   rankedPlayers() {
@@ -216,15 +219,12 @@ class GameEngine {
         badge = 'First Blood';
       }
 
-      player.streak += 1;
-      if (player.streak >= 3) {
+      // Score and streak are applied in endQuestion, so nothing the player can see changes before the reveal.
+      if (player.streak + 1 >= 3) {
         points += 100;
         if (!badge) badge = 'Streak Master';
       }
       if (timeTaken < 2000 && !badge) badge = 'Lightning';
-      player.score += points;
-    } else {
-      player.streak = 0;
     }
     player.totalResponseTime += timeTaken;
 
@@ -237,7 +237,7 @@ class GameEngine {
       badge,
     };
 
-    return { success: true, points, isCorrect, badge };
+    return { success: true };
   }
 
   answeredCount() {
@@ -264,9 +264,15 @@ class GameEngine {
       }
     }
 
-    // Not answering breaks a streak too.
+    // Apply the scores at the reveal. A wrong answer or no answer breaks the streak.
     for (const p of Object.values(this.players)) {
-      if (!this.answers[p.id]) p.streak = 0;
+      const a = this.answers[p.id];
+      if (a?.isCorrect) {
+        p.score += a.pointsEarned;
+        p.streak += 1;
+      } else {
+        p.streak = 0;
+      }
     }
 
     this.currentQuestionIndex++;

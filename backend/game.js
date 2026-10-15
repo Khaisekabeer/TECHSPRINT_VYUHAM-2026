@@ -76,6 +76,10 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     if (!result) return; // already ended
     db.saveQuestionResults(gameEngine.gameId, question?.id, answers, gameEngine.rankedPlayers());
     io.emit('question_result', result);
+    // Each player learns their own result only now, at the reveal.
+    for (const p of Object.values(gameEngine.players)) {
+      if (p.connected) io.to(p.socketId).emit('my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p) });
+    }
     broadcastState();
     broadcastPlayers();
   }

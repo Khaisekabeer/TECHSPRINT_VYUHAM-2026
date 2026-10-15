@@ -66,10 +66,22 @@ export default function ParticipantView() {
       setTimeout(() => socket.connect(), 500); // the server closed our connection
     });
     socket.on('game_reset', () => leaveGame('The game was reset. Join again to play.'));
+    // Our own result for the question that just ended.
+    socket.on('my_result', (res: any) => {
+      setPlayerInfo(res.player);
+      setAnswerResult(res.myAnswer);
+      if (res.myAnswer?.isCorrect) {
+        confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 }, colors: ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'] });
+        if (navigator.vibrate) navigator.vibrate(150);
+      } else if (res.myAnswer) {
+        if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+      }
+    });
     return () => {
       socket.off('game_state');
       socket.off('kicked');
       socket.off('game_reset');
+      socket.off('my_result');
     };
   }, [socket]);
 
@@ -129,14 +141,8 @@ export default function ParticipantView() {
         setMessage(res.error);
         return;
       }
-      setAnswerResult(res);
-      setPlayerInfo((prev: any) => ({ ...prev, score: (prev?.score ?? 0) + res.points }));
-      if (res.isCorrect) {
-        confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 }, colors: ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'] });
-        if (navigator.vibrate) navigator.vibrate(150);
-      } else {
-        if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
-      }
+      // Right/wrong is only revealed when the question ends (my_result).
+      setAnswerResult({ answer: option, success: true });
     });
   };
 

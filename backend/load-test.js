@@ -86,12 +86,17 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   const t0 = Date.now();
   const players = [];
   const joinErrors = [];
+  // Scores arrive privately at each reveal; the answer ack carries no result.
+  const trackScore = p => p.socket.on('my_result', r => { p.score = r.player.score; p.revealed = true; });
   await Promise.all(Array.from({ length: PLAYERS }, async (_, i) => {
     try {
       const socket = await connect();
       const res = await ask(socket, 'join_game', { name: `LT_${i}`, ticketId: `LTTEST${String(i).padStart(4, '0')}` });
-      if (res.success) players.push({ socket, token: res.token, name: `LT_${i}`, score: 0 });
-      else joinErrors.push(res.error);
+      if (res.success) {
+        const p = { socket, token: res.token, name: `LT_${i}`, score: 0 };
+        trackScore(p);
+        players.push(p);
+      } else joinErrors.push(res.error);
     } catch (err) {
       joinErrors.push(err.message);
     }
@@ -116,8 +121,8 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
       try {
         const res = await ask(p.socket, 'submit_answer', options[Math.floor(Math.random() * options.length)]);
         latencies.push(Date.now() - start);
-        if (res.success) p.score += res.points;
-        else answerErrors.push(res.error);
+        if (!res.success) answerErrors.push(res.error);
+        else if ('isCorrect' in res || 'points' in res) answerErrors.push('answer ack leaked the result');
       } catch (err) {
         answerErrors.push(err.message);
       }
@@ -129,12 +134,15 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
       p.socket.disconnect();
       await wait(200);
       p.socket = await connect();
+      trackScore(p);
       const res = await ask(p.socket, 'rejoin_game', p.token);
-      const ok = res.success && res.player.name === p.name && res.player.score === p.score && res.myAnswer;
-      console.log(`Rejoin check: ${ok ? 'OK (name, score and answer restored)' : 'FAILED ' + JSON.stringify(res)}`);
+      const ok = res.success && res.player.name === p.name && res.player.score === p.score
+        && res.myAnswer?.answer && !('isCorrect' in res.myAnswer);
+      console.log(`Rejoin check: ${ok ? 'OK (name, score and answer restored, result hidden)' : 'FAILED ' + JSON.stringify(res)}`);
     }
 
     await hostAction('end_question');
+    await wait(300); // let each player's private result arrive
     questionsPlayed++;
   }
 
