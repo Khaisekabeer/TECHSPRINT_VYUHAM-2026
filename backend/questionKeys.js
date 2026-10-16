@@ -121,10 +121,20 @@ async function rotateRecoveryCode(dek) {
   return recoveryCode;
 }
 
-// Decrypted, active questions in play order — only ever held in the game server's memory.
+// Decrypted, active questions in play order (level number, then position), each carrying its
+// level's name, multiplier and cut (qualifyTop) — only ever held in the game server's memory.
 async function loadGameQuestions(dek) {
-  const rows = await store.listQuestionRows();
-  return rows.filter(r => r.is_active).map(r => decryptRow(r, dek));
+  const [rows, levels] = await Promise.all([store.listQuestionRows(), store.listLevels()]);
+  const byNumber = new Map(levels.map(l => [l.number, l]));
+  return rows.filter(r => r.is_active).map(r => {
+    const level = byNumber.get(r.level);
+    return {
+      ...decryptRow(r, dek),
+      levelName: level?.name ?? `Level ${r.level}`,
+      multiplier: level?.multiplier ?? 1,
+      qualifyTop: level?.qualifyTop ?? null,
+    };
+  });
 }
 
 module.exports = { VaultError, unlock, recover, afterUnlock, keysForNewPin, decryptRow, loadGameQuestions, rotateRecoveryCode };

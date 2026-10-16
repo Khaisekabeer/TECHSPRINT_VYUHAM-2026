@@ -91,16 +91,19 @@ class Bot {
     this.score = 0;
     this.answeredIndex = null;
     this.stopped = false;
+    this.status = 'active';
   }
 
   async open() {
     this.socket = await connect();
     this.socket.on('game_state', s => this.onState(s));
-    this.socket.on('my_result', r => { this.score = r.player.score; });
+    this.socket.on('my_result', r => { this.score = r.player.score; this.status = r.player.status; });
+    this.socket.on('player_update', r => { this.status = r.player.status; });
     this.socket.on('kicked', () => { this.stopped = true; log(`  ${this.name} was removed by the host`); });
     this.socket.on('game_reset', () => {
       this.token = null;
       this.score = 0;
+      this.status = 'active';
       setTimeout(() => this.join(), rand(1000, 4000)); // like players re-joining for the next round
     });
   }
@@ -119,7 +122,7 @@ class Bot {
 
   onState(s) {
     lastState = s;
-    if (!this.token || this.stopped || s.state !== 'question' || this.answeredIndex === s.currentQuestionIndex) return;
+    if (!this.token || this.stopped || this.status !== 'active' || s.state !== 'question' || this.answeredIndex === s.currentQuestionIndex) return;
     this.answeredIndex = s.currentQuestionIndex;
     if (Math.random() < this.p.skipRate) { stats.skipped++; return; }
 
@@ -158,6 +161,7 @@ class Bot {
       await this.open();
       const res = await ask(this.socket, 'rejoin_game', this.token);
       if (!res.success) return countError(`rejoin: ${res.error}`);
+      this.status = res.player.status;
       if (res.myAnswer) this.answeredIndex = res.gameState.currentQuestionIndex;
       else this.answeredIndex = null;
       this.onState(res.gameState); // answers if the question is still running
@@ -203,6 +207,9 @@ async function runAuto(h) {
   await wait(LOBBY_S * 1000);
   await h.action('start_game');
   log('Game started');
+  await wait(200);
+  const first = h.state;
+  log(`── Round ${first.currentLevel}/${first.totalLevels}: ${first.levelConfig?.name || ''} (points ×${first.levelConfig?.multiplier ?? 1})`);
   while (true) {
     await wait(INTRO_S * 1000);
     await h.action('start_question');
@@ -210,7 +217,7 @@ async function runAuto(h) {
     const s = h.state;
     if (s.state === 'podium') break;
     if (s.state === 'intro') {
-      log(`── Round ${s.currentLevel}: ${s.levelConfig?.name || ''}`);
+      log(`── Round ${s.currentLevel}/${s.totalLevels}: ${s.levelConfig?.name || ''} (points ×${s.levelConfig?.multiplier ?? 1})`);
       continue;
     }
     const q = s.currentQuestion;
@@ -219,6 +226,10 @@ async function runAuto(h) {
     const r = h.result;
     const answers = Object.values(r.stats).reduce((a, b) => a + b, 0);
     log(`   Answer: ${r.correctAnswer}  ·  ${r.stats[r.correctAnswer] || 0}/${answers} correct${r.speedStar ? `  ·  fastest: ${r.speedStar}` : ''}`);
+    if (r.elimination) {
+      const e = r.elimination;
+      log(`   ✂ Cut after ${e.levelName}: top ${e.qualifyTop} advance → ${e.advanced} left, ${e.eliminated.length} eliminated`);
+    }
     await wait(Math.max(0, REVEAL_S * 1000 - INTRO_S * 1000));
   }
   await wait(500);
@@ -265,7 +276,7 @@ async function runAuto(h) {
   const kinds = bots.reduce((m, b) => ({ ...m, [b.p.kind]: (m[b.p.kind] || 0) + 1 }), {});
   log(`Players: ${Object.entries(kinds).map(([k, n]) => `${n} ${k}`).join(', ')} · ${bots.filter(b => b.p.flaky).length} on flaky connections`);
 
-  const summary = () => log(`Answers: ${stats.answered} · skipped: ${stats.skipped} · connection drops: ${stats.drops}${
+  const summary = () => log(`Answers: ${stats.answered} · skipped: ${stats.skipped} · connection drops: ${stats.drops} · out: ${bots.filter(b => b.status !== 'active').length}${
     stats.errors.size ? ` · errors: ${[...stats.errors].map(([m, n]) => `${m} ×${n}`).join(', ')}` : ''}`);
 
   if (AUTO) {

@@ -49,6 +49,8 @@ function toParticipantRow(gameId, p) {
     total_response_ms: p.totalResponseTime,
     final_rank: p.finalRank ?? null,
     ticket_id: p.ticketId ?? null,
+    status: p.status || 'active',
+    eliminated_level: p.exit?.level ?? null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -99,12 +101,41 @@ function saveQuestionResults(gameId, questionId, answers, players) {
     })), { onConflict: 'participant_id,question_id', ignoreDuplicates: true }));
 }
 
+// rankedPlayers is in final order; disqualified players get no rank.
 function finishGame(gameId, rankedPlayers) {
-  saveParticipants(gameId, rankedPlayers.map((p, i) => ({ ...p, finalRank: i + 1 })));
+  let rank = 0;
+  saveParticipants(gameId, rankedPlayers.map(p => ({ ...p, finalRank: p.status === 'disqualified' ? null : ++rank })));
   return enqueue('finishGame', () => supabase
     .from('games')
     .update({ status: 'finished', ended_at: new Date().toISOString() })
     .eq('id', gameId));
+}
+
+// Players who left before the end (cut after a level, or disqualified). Their participants rows
+// must already be saved (the write queue keeps the order).
+function recordEliminations(gameId, players) {
+  if (players.length === 0) return writeQueue;
+  return enqueue('recordEliminations', () => supabase
+    .from('eliminations')
+    .upsert(players.map(p => ({
+      game_id: gameId,
+      participant_id: p.id,
+      ticket_id: p.ticketId ?? null,
+      name: p.name,
+      level: p.exit.level,
+      round: p.exit.round,
+      reason: p.exit.reason,
+      note: p.exit.note?.slice(0, 300) ?? null,
+      rank_at_exit: p.exit.rank,
+      score_at_exit: p.exit.score,
+      staff_id: p.exit.staffId ?? null,
+    })), { onConflict: 'game_id,participant_id', ignoreDuplicates: true }));
+}
+
+// Activity log rows (see game.js logEvent), written in batches.
+function logEvents(rows) {
+  if (rows.length === 0) return writeQueue;
+  return enqueue('logEvents', () => supabase.from('participant_events').insert(rows));
 }
 
 function deleteParticipant(participantId) {
@@ -140,6 +171,8 @@ module.exports = {
   saveQuestionResults,
   finishGame,
   deleteParticipant,
+  recordEliminations,
+  logEvents,
   replaceQuestions,
   flush: () => writeQueue,
 };

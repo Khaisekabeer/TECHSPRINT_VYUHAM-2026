@@ -8,11 +8,8 @@ interface Question {
 }
 type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
-const LEVELS = [
-  { level: 1, name: 'Warm-up', multiplier: 1 },
-  { level: 2, name: 'Core Tech', multiplier: 2 },
-  { level: 3, name: 'Brain Burner', multiplier: 3 },
-];
+// Levels (rounds) are set up by the quiz master and played in this order.
+interface Level { number: number; name: string; multiplier: number; qualifyTop: number | null }
 const blank = (level: number): Draft => ({
   level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true,
 });
@@ -174,6 +171,7 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
   vaultUntil: number; onLocked: () => void; onRecoveryCode: (code: string) => void;
 }) {
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [levels, setLevels] = useState<Level[]>([]);
   const [level, setLevel] = useState(1);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState('');
@@ -197,10 +195,23 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
     }
   }, [onLocked]);
 
-  const load = useCallback(() => guard(async () => setQuestions(await api<Question[]>('/questions'))), [guard]);
+  const load = useCallback(() => guard(async () => {
+    const [qs, ls] = await Promise.all([api<Question[]>('/questions'), api<Level[]>('/levels')]);
+    setQuestions(qs);
+    setLevels(ls);
+    setLevel(current => (ls.some(l => l.number === current) ? current : ls[0]?.number ?? 1));
+  }), [guard]);
   useEffect(() => { load(); }, [load]);
 
   const inLevel = questions.filter(q => q.level === level);
+  const current = levels.find(l => l.number === level);
+  const round = levels.findIndex(l => l.number === level) + 1;
+  const addLevel = () => guard(async () => {
+    const created = await api<Level>('/levels', { method: 'POST', body: { name: `Level ${levels.length + 1}`, multiplier: 1 } });
+    await load();
+    setLevel(created.number);
+    setDraft(null);
+  });
   const lock = async () => { await api('/auth/vault/lock', { method: 'POST' }).catch(() => {}); onLocked(); };
   const newRecoveryCode = () => {
     if (!confirm('Create a new recovery code? The old code will stop working.')) return;
@@ -217,7 +228,7 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
   const applyTimer = (e: React.FormEvent) => {
     e.preventDefault();
     const seconds = Number(timer);
-    if (!confirm(`Set every Level ${level} question to ${seconds} seconds?`)) return;
+    if (!confirm(`Set every "${current?.name}" question to ${seconds} seconds?`)) return;
     guard(async () => { await api(`/levels/${level}/timer`, { method: 'PUT', body: { seconds } }); setTimer(''); await load(); });
   };
 
@@ -235,32 +246,38 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
       <LoadIntoGame guard={guard} refreshKey={questions.length} />
 
       <nav className="tabs" aria-label="Levels">
-        {LEVELS.map(l => (
-          <button key={l.level} className={`tab${level === l.level ? ' active' : ''}`} onClick={() => { setLevel(l.level); setDraft(null); }}>
-            L{l.level} · {l.name}<span className="count">{questions.filter(q => q.level === l.level).length}</span>
+        {levels.map((l, i) => (
+          <button key={l.number} className={`tab${level === l.number ? ' active' : ''}`} onClick={() => { setLevel(l.number); setDraft(null); }}>
+            L{i + 1} · {l.name}<span className="count">{questions.filter(q => q.level === l.number).length}</span>
           </button>
         ))}
+        <button className="tab" onClick={addLevel} disabled={levels.length >= 20}>+ Add level</button>
       </nav>
+
+      {current && (
+        <LevelSettings key={current.number} level={current} round={round} questionCount={inLevel.length} guard={guard}
+          onChanged={load} />
+      )}
 
       <div className="grid-2" style={{ alignItems: 'end' }}>
         <Panel>
-          <div className="eyebrow">Level {level} timer</div>
+          <div className="eyebrow">Timer for every question in this level</div>
           <form onSubmit={applyTimer} style={{ display: 'flex', gap: 10, marginTop: 12, alignItems: 'center' }}>
             <input className="field field-sm" type="number" min={5} max={300} placeholder="Seconds" value={timer}
-              onChange={e => setTimer(e.target.value)} style={{ maxWidth: 140 }} aria-label={`Seconds for every level ${level} question`} />
+              onChange={e => setTimer(e.target.value)} style={{ maxWidth: 140 }} aria-label={`Seconds for every ${current?.name} question`} />
             <button className="btn btn-ghost btn-sm" disabled={!timer || Number(timer) < 5 || Number(timer) > 300}>Apply to all in level</button>
           </form>
-          <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>Or set a timer per question when editing it. Points ×{LEVELS[level - 1].multiplier} in this level.</p>
+          <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>Or set a timer per question when editing it. Points ×{current?.multiplier ?? 1} in this level.</p>
         </Panel>
         <div style={{ textAlign: 'right' }}>
-          <button className="btn btn-heat" onClick={() => setDraft(blank(level))} disabled={!!draft && !draft.id}>+ Add question to level {level}</button>
+          <button className="btn btn-heat" onClick={() => setDraft(blank(level))} disabled={(!!draft && !draft.id) || !current}>+ Add question to {current?.name ?? 'this level'}</button>
         </div>
       </div>
 
       {error && <p role="alert" className="error-text" style={{ textAlign: 'left' }}>{error}</p>}
 
       {draft && !draft.id && (
-        <Editor draft={draft} onCancel={() => setDraft(null)}
+        <Editor draft={draft} levels={levels} onCancel={() => setDraft(null)}
           onSave={d => guard(async () => { await api('/questions', { method: 'POST', body: d }); setDraft(null); await load(); })} />
       )}
 
@@ -272,7 +289,7 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
 
       {inLevel.map((q, i) => (
         draft?.id === q.id ? (
-          <Editor key={q.id} draft={draft} onCancel={() => setDraft(null)}
+          <Editor key={q.id} draft={draft} levels={levels} onCancel={() => setDraft(null)}
             onSave={d => guard(async () => { await api(`/questions/${q.id}`, { method: 'PUT', body: d }); setDraft(null); await load(); })} />
         ) : (
           <Panel key={q.id} style={{ opacity: q.isActive ? 1 : 0.55 }}>
@@ -316,8 +333,65 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
   );
 }
 
+// ─── Level settings: name, multiplier, delete ────────────────────────────────
+function LevelSettings({ level, round, questionCount, guard, onChanged }: {
+  level: Level; round: number; questionCount: number;
+  guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>; onChanged: () => void;
+}) {
+  const [name, setName] = useState(level.name);
+  const [multiplier, setMultiplier] = useState(String(level.multiplier));
+  // Elimination: only the top N go on to the next level (blank = everyone).
+  const [qualifyTop, setQualifyTop] = useState(level.qualifyTop ? String(level.qualifyTop) : '');
+  const top = qualifyTop.trim() === '' ? null : Number(qualifyTop);
+  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || top !== level.qualifyTop;
+  const valid = name.trim().length > 0 && Number(multiplier) > 0 && Number(multiplier) <= 10
+    && (top === null || (Number.isInteger(top) && top >= 1));
+
+  const save = (e: React.FormEvent) => {
+    e.preventDefault();
+    guard(async () => {
+      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), qualifyTop: top } });
+      onChanged();
+    });
+  };
+  const remove = () => {
+    if (!confirm(`Delete the level "${level.name}"?`)) return;
+    guard(async () => { await api(`/levels/${level.number}`, { method: 'DELETE' }); onChanged(); });
+  };
+
+  return (
+    <Panel>
+      <form onSubmit={save} style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div className="form-row" style={{ flex: '1 1 220px' }}>
+          <label className="eyebrow" htmlFor="lvl-name">Level {round} name</label>
+          <input id="lvl-name" className="field field-sm" value={name} maxLength={40} onChange={e => setName(e.target.value)} required />
+        </div>
+        <div className="form-row" style={{ flex: '0 1 140px' }}>
+          <label className="eyebrow" htmlFor="lvl-mult">Points ×</label>
+          <input id="lvl-mult" className="field field-sm" type="number" min={0.1} max={10} step={0.1} value={multiplier}
+            onChange={e => setMultiplier(e.target.value)} required />
+        </div>
+        <div className="form-row" style={{ flex: '0 1 180px' }}>
+          <label className="eyebrow" htmlFor="lvl-top">Top N advance</label>
+          <input id="lvl-top" className="field field-sm" type="number" min={1} step={1} value={qualifyTop} placeholder="Everyone"
+            onChange={e => setQualifyTop(e.target.value)} />
+        </div>
+        <button className="btn btn-ghost btn-sm" disabled={!dirty || !valid}>Save level</button>
+        <button type="button" className="btn btn-danger btn-sm" onClick={remove} disabled={questionCount > 0}
+          title={questionCount > 0 ? 'Move or delete its questions first' : undefined}>Delete level</button>
+      </form>
+      <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>
+        Shown on the projector and phones when this round starts. Levels are played in the order of the tabs; empty levels are skipped.
+        With "Top N advance", everyone below the top N after this level's last question is eliminated (ties go to the faster player); the last level has no cut.
+      </p>
+    </Panel>
+  );
+}
+
 // ─── Editor ───────────────────────────────────────────────────────────────────
-function Editor({ draft, onSave, onCancel }: { draft: Draft; onSave: (d: Draft) => Promise<unknown>; onCancel: () => void }) {
+function Editor({ draft, levels, onSave, onCancel }: {
+  draft: Draft; levels: Level[]; onSave: (d: Draft) => Promise<unknown>; onCancel: () => void;
+}) {
   const [d, setD] = useState<Draft>(draft);
   const [saving, setSaving] = useState(false);
   const options = d.type === 'tf' ? ['True', 'False'] : d.options;
@@ -345,7 +419,7 @@ function Editor({ draft, onSave, onCancel }: { draft: Draft; onSave: (d: Draft) 
           <div className="form-row">
             <label className="eyebrow" htmlFor="q-level">Level</label>
             <select id="q-level" className="field field-sm" value={d.level} onChange={e => setD({ ...d, level: Number(e.target.value) })}>
-              {LEVELS.map(l => <option key={l.level} value={l.level}>Level {l.level} · {l.name}</option>)}
+              {levels.map((l, i) => <option key={l.number} value={l.number}>Level {i + 1} · {l.name}</option>)}
             </select>
           </div>
           <div className="form-row">

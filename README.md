@@ -36,7 +36,7 @@ Every staff member has their own login (username or email), created by an admin 
 | Role | Responsibility | Can do |
 |---|---|---|
 | **Admin** | Management | Import participants (MakeMyPass CSV), check-in dashboard, scan passes, manage staff, settings (game server address, *require check-in*), results CSV, host console. Everything except the question bank |
-| **Quiz master** | Questions & answers | Encrypted question bank behind a **second PIN**: add/edit/reorder/hide questions per level, timers, points; **Load into game** |
+| **Quiz master** | Questions & answers | Encrypted question bank behind a **second PIN**: levels (add, rename, points multiplier), add/edit/reorder/hide questions per level, timers, points; **Load into game** |
 | **Coordinator** | Conducts the live event | Host console (start, next question, reveal, kick, reset) and the live monitor |
 | **Volunteer** | Monitors the live event | Pass check-in scanner and the read-only live monitor (who is online/disconnected, answers in) |
 
@@ -58,7 +58,7 @@ Questions are only ever visible to quiz masters until they appear live on the pr
 
 1. **Admin** exports the attendee list from MakeMyPass (bookings) as CSV and uploads it in **Admin → Participants** (columns are auto-detected; re-importing updates details and never clears check-ins). Excel files: save as CSV first.
 2. **Volunteer** opens **Admin → Check-in** on a phone, starts the camera and scans the QR code on the pass (it contains the ticket ID, e.g. `MMP49081761`). The participant's details appear; tap **Admit**. Unknown and already-admitted tickets are flagged. Manual ticket entry is always available.
-3. **Participant** joins the quiz at `/` with the ticket ID from their pass. Only admitted tickets can play; one device per ticket (a player on a new phone can reclaim their seat if the old one disconnected).
+3. **Participant** joins the quiz at `/` with the ticket ID from their pass. Only admitted tickets can play; one device per ticket. A player on a new phone can take their seat back if the old one disconnected, by entering the last 4 digits of the phone number they registered with. Repeated wrong ticket IDs or digits are throttled.
 4. Fallback: an admin can switch off **Require check-in to play** (Overview) so anyone joins with just a name.
 
 The camera needs HTTPS — Vercel provides it. (In all-in-one LAN mode, `HTTPS=true npm start` serves a self-signed certificate instead.)
@@ -115,9 +115,37 @@ Leave the game server address empty. Test data: `npm run seed:test` in `backend/
 
 ## Questions & scoring
 
-Each question has a level (1 Warm-up, 2 Core Tech, 3 Brain Burner), multiple-choice (2-4 options) or true/false, a timer (5-300 s) and base points. Hidden questions stay in the bank but are left out of the game.
+**Levels** are set up by the quiz master in Admin → Questions: add as many as needed, name them, and give each a points multiplier (default: 1 Warm-up ×1, 2 Core Tech ×2, 3 Brain Burner ×3). They are played in tab order, each opening with an intro on the projector; empty levels are skipped. A level can be deleted once it has no questions.
 
-Scoring: `points × level multiplier (1/2/3)`, scaled from 100% (instant) to 50% (last second), plus +200 for the first correct answer and +100 on a streak of 3+.
+Each question belongs to a level and is multiple-choice (2-4 options) or true/false, a timer (5-300 s) and base points. Hidden questions stay in the bank but are left out of the game.
+
+Scoring: `points × level multiplier`, scaled from 100% (instant) to 50% (last second), plus +200 for the first correct answer and +100 on a streak of 3+. Standings: higher score first; on a tie, less total answer time (a skipped question counts as its full timer, so skipping never helps).
+
+## Eliminations & disqualification
+
+- **Cut after a level:** set **Top N advance** on a level (Admin → Questions → level settings). When that level's last question ends, everyone below the top N is eliminated (ties go to the faster player). The projector shows "Top N advance · M eliminated", eliminated phones show their rank and score and can keep watching, but can no longer answer. Leave it empty for no cut; the final level never cuts.
+- **Disqualify:** once the game has started, the host console's **DQ** button removes a player with a reason (e.g. "Using a second phone"). Their answer to the live question is discarded and they get no final rank. (In the lobby, **Kick** simply removes a player.)
+- **Where it's stored:** players stay in `participants` with `status` = `active` / `eliminated` / `disqualified` (their answers and log must survive), and every exit gets a row in `eliminations`: round, level, reason, note, rank and score at exit, and the staff member for disqualifications.
+- **Final ranking:** finalists by score, then the eliminated (later rounds first, then by score), then the disqualified with no rank. The results CSV includes status, round and reason.
+
+## Activity log & malpractice
+
+Every candidate's actions are logged in `participant_events` (written in batches, a few thousand rows per game): join, failed join attempts (unknown ticket, not checked in, wrong phone digits), seat moved to a new device, reconnects, disconnects, every answer (option, correct, time, points), rejected answers (late, duplicate, after elimination), **leaving the quiz screen during a question** and for how long, elimination and disqualification. Admin → Overview → **Activity log** downloads it as a CSV for any game. IP addresses are logged for joins and reconnects; keep the log only as long as needed.
+
+Precautions against malpractice:
+
+| Risk | Protection |
+|---|---|
+| Seeing questions early | Encrypted bank, visible only to quiz masters; questions reach phones only when they go live |
+| Peeking at a neighbour's result | The correct answer and right/wrong are sent only at the reveal |
+| Answering late or twice, changing answers | The server keeps the time (1 s grace for latency) and accepts one answer per question |
+| Someone else playing for you | Check-in at the entry by pass; one device per ticket; moving to another device needs the last 4 digits of the registered phone |
+| Guessing ticket IDs | Throttled after 8 wrong attempts per connection (60 per IP in 10 minutes) |
+| Looking up answers on the same phone | Short timers and speed scoring; leaving the quiz screen is flagged to staff (count and seconds away) |
+| Scripted / bot answering | Very fast correct answers (< 1.5 s on 10 s+ questions) are flagged |
+| Tampered messages | The server validates every message; options must match the question; eliminated or disqualified players can't answer |
+
+Flags appear in the host console and the volunteers' **Live monitor** ("to watch"), sorted to the top. They are hints, not proof (a notification can hide the page for a moment): an invigilator checks in person and the host decides whether to disqualify. Copying from a neighbour can't be detected by software; seating and invigilators handle that.
 
 ## Running the event
 
@@ -128,7 +156,7 @@ Scoring: `points × level multiplier (1/2/3)`, scaled from 100% (instant) to 50%
 5. Coordinator: `/admin` → Live event → **Open host console**.
 6. Players scan the QR and join with their ticket ID while the game is in the lobby.
 7. **Start game** → **Next question**. Each question ends automatically when its timer runs out. After the last question, **Show final results** shows the podium; every phone shows its rank.
-8. Admin: Overview → **Download CSV** for the results.
+8. Admin: Overview → **Download CSV** for the results (the latest finished game by default; earlier, reset or test games can be picked from the list).
 
 ### Day-of checklist
 - [ ] Real staff accounts created; `admin` password changed or account disabled

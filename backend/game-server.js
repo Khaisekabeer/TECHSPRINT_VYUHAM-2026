@@ -45,7 +45,8 @@ internal.get('/status', (req, res) => res.json(game.status()));
 internal.post('/questions', (req, res) => {
   const { questions, by } = req.body || {};
   const valid = Array.isArray(questions) && questions.every(q =>
-    q && typeof q.text === 'string' && Array.isArray(q.options) && typeof q.correctAnswer === 'string' && [1, 2, 3].includes(q.level));
+    q && typeof q.text === 'string' && Array.isArray(q.options) && typeof q.correctAnswer === 'string'
+    && Number.isInteger(q.level) && q.level >= 1 && q.level <= 99);
   if (!valid) return res.status(400).json({ error: 'Invalid question list' });
   const result = game.loadQuestions(questions, typeof by === 'string' ? by.slice(0, 60) : 'Quiz master');
   res.status(result.error ? 409 : 200).json(result);

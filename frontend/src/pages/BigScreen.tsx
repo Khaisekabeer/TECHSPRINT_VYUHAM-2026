@@ -85,7 +85,7 @@ export default function BigScreen() {
           <Question gameState={gameState} timeLeft={timeLeft} maxTime={maxTime} answerCount={answerCount} level={level} />
         )}
         {phase === 'leaderboard' && <Reveal result={questionResult} players={players} />}
-        {phase === 'podium' && <Podium board={gameState.finalLeaderboard || players} />}
+        {phase === 'podium' && <Podium board={(gameState.finalLeaderboard || players).filter((p: any) => p.status !== 'disqualified')} />}
       </div>
     </div>
   );
@@ -236,7 +236,8 @@ function Reveal({ result, players }: { result: any; players: any[] }) {
   const stats: [string, number][] = result ? Object.entries(result.stats || {}) as [string, number][] : [];
   const maxCount = Math.max(1, ...stats.map(([, n]) => n));
   const totalAnswers = stats.reduce((sum, [, n]) => sum + n, 0);
-  const board: any[] = (result?.leaderboard || players).slice(0, 8);
+  const board: any[] = (result?.leaderboard || players.filter(p => (p.status ?? 'active') === 'active')).slice(0, 8);
+  const cut = result?.elimination;
 
   return (
     <>
@@ -278,6 +279,14 @@ function Reveal({ result, players }: { result: any; players: any[] }) {
             <Rise d={800}><span className="chip chip-gold" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>⚡ Fastest correct · {result.speedStar}</span></Rise>
           )}
         </div>
+        {cut && (
+          <Rise d={900} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
+            <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>End of {cut.levelName}</div>
+            <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>
+              Top {cut.qualifyTop} advance{cut.eliminated.length > 0 ? ` · ${cut.eliminated.length} eliminated` : ''}
+            </div>
+          </Rise>
+        )}
       </section>
 
       <section style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4vh 4vw', minWidth: 0 }}>

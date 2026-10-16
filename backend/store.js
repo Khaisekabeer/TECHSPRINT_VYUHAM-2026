@@ -299,6 +299,37 @@ function setLevelTimer(level, seconds) {
   return run(supabase.from('questions').update({ time_limit: seconds }).eq('level', level), 'Setting level timer');
 }
 
+// ─── Levels (rounds; played in number order) ─────────────────────────────────
+const LEVEL_COLUMNS = 'number, name, multiplier, qualify_top';
+const toLevel = row => ({ number: row.number, name: row.name, multiplier: Number(row.multiplier), qualifyTop: row.qualify_top ?? null });
+
+async function listLevels() {
+  return (await run(supabase.from('levels').select(LEVEL_COLUMNS).order('number'), 'Loading levels')).map(toLevel);
+}
+
+async function createLevel({ name, multiplier, qualify_top = null }) {
+  const last = await run(supabase.from('levels').select('number').order('number', { ascending: false }).limit(1), 'Finding level number');
+  const rows = await run(
+    supabase.from('levels').insert({ number: (last[0]?.number ?? 0) + 1, name, multiplier, qualify_top }).select(LEVEL_COLUMNS),
+    'Adding level',
+  );
+  return toLevel(rows[0]);
+}
+
+async function updateLevel(number, fields) {
+  const rows = await run(supabase.from('levels').update(fields).eq('number', number).select(LEVEL_COLUMNS), 'Updating level');
+  return rows[0] ? toLevel(rows[0]) : null;
+}
+
+async function countQuestionsInLevel(number) {
+  const { count } = await run(supabase.from('questions').select('id', { count: 'exact', head: true }).eq('level', number), 'Counting questions');
+  return count;
+}
+
+function deleteLevel(number) {
+  return run(supabase.from('levels').delete().eq('number', number), 'Deleting level');
+}
+
 // ─── Question vault keys ──────────────────────────────────────────────────────
 async function getVault() {
   const rows = await run(supabase.from('question_vault').select('*').eq('id', 1).limit(1), 'Loading question vault');
@@ -337,22 +368,54 @@ async function quizmastersWithoutGrant() {
 }
 
 // ─── Results ──────────────────────────────────────────────────────────────────
-async function latestResults() {
+// Recent games for the admin to pick from (test runs and resets show up here too).
+async function listGames(limit = 15) {
   const games = await run(
-    supabase.from('games').select('id, name, status, started_at, ended_at').not('started_at', 'is', null)
-      .order('started_at', { ascending: false }).limit(1),
-    'Loading latest game',
+    supabase.from('games').select('id, name, status, started_at, ended_at, participants(count)').not('started_at', 'is', null)
+      .order('started_at', { ascending: false }).limit(limit),
+    'Listing games',
   );
+  return games.map(g => ({
+    id: g.id, name: g.name, status: g.status, startedAt: g.started_at, endedAt: g.ended_at,
+    players: g.participants?.[0]?.count ?? 0,
+  }));
+}
+
+// Results of one game; by default the most recent *finished* one (not an abandoned or reset run).
+async function gameResults(gameId) {
+  let query = supabase.from('games').select('id, name, status, started_at, ended_at');
+  query = gameId
+    ? query.eq('id', gameId)
+    : query.eq('status', 'finished').order('started_at', { ascending: false });
+  const games = await run(query.limit(1), 'Loading game');
   const game = games[0];
   if (!game) return null;
   const rows = await run(
     supabase.from('participants')
-      .select('name, score, final_rank, ticket_id, registration:ticket_id (name, email, phone, college)')
+      .select('name, score, final_rank, ticket_id, status, registration:ticket_id (name, email, phone, college), exit:eliminations (round, reason, note, rank_at_exit)')
       .eq('game_id', game.id)
+      .order('final_rank', { ascending: true, nullsFirst: false })
       .order('score', { ascending: false }),
     'Loading results',
   );
   return { game, rows };
+}
+
+// The activity log of one game, in order (paged: Supabase returns at most 1000 rows per request).
+async function gameEvents(gameId) {
+  const all = [];
+  for (let from = 0; ; from += 1000) {
+    const page = await run(
+      supabase.from('participant_events')
+        .select('at, ticket_id, player_name, event, question_index, detail, ip')
+        .eq('game_id', gameId)
+        .order('at').order('id')
+        .range(from, from + 999),
+      'Loading activity log',
+    );
+    all.push(...page);
+    if (page.length < 1000) return all;
+  }
 }
 
 module.exports = {
@@ -387,6 +450,11 @@ module.exports = {
   deleteQuestion,
   moveQuestion,
   setLevelTimer,
+  listLevels,
+  createLevel,
+  updateLevel,
+  countQuestionsInLevel,
+  deleteLevel,
   getVault,
   insertVault,
   updateVaultRecovery,
@@ -394,5 +462,7 @@ module.exports = {
   upsertGrant,
   deleteGrant,
   quizmastersWithoutGrant,
-  latestResults,
+  listGames,
+  gameResults,
+  gameEvents,
 };

@@ -21,6 +21,9 @@ export default function ParticipantView() {
   const { socket, isConnected } = useSocket();
   const [name, setName] = useState('');
   const [ticketId, setTicketId] = useState('');
+  // Continuing on a new device: the server asks for the last 4 digits of the registered phone.
+  const [needsVerify, setNeedsVerify] = useState(false);
+  const [verify, setVerify] = useState('');
   const [requireCheckin, setRequireCheckin] = useState(true);
   const [joining, setJoining] = useState(false);
   const [gameState, setGameState] = useState<any>(null);
@@ -77,13 +80,26 @@ export default function ParticipantView() {
         if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       }
     });
+    // Status changes outside a reveal (e.g. disqualified by the host).
+    socket.on('player_update', (res: any) => setPlayerInfo(res.player));
     return () => {
       socket.off('game_state');
       socket.off('kicked');
       socket.off('game_reset');
       socket.off('my_result');
+      socket.off('player_update');
     };
   }, [socket]);
+
+  // Tell the server when the quiz page is hidden during a question (switching apps or tabs).
+  // Staff see it as a flag; nothing happens automatically.
+  const answering = !!playerInfo && playerInfo.status === 'active' && gameState?.state === 'question';
+  useEffect(() => {
+    if (!answering) return;
+    const report = () => socket.emit('screen', { hidden: document.visibilityState === 'hidden' });
+    document.addEventListener('visibilitychange', report);
+    return () => document.removeEventListener('visibilitychange', report);
+  }, [socket, answering]);
 
   // Reclaim our seat after a refresh or a dropped connection.
   useEffect(() => {
@@ -120,13 +136,18 @@ export default function ParticipantView() {
     if (requireCheckin ? !ticketId.trim() : !name.trim()) return;
     setMessage('');
     setJoining(true);
-    const payload = requireCheckin ? { ticketId: ticketId.trim(), name: name.trim() } : { name: name.trim() };
+    const payload = requireCheckin
+      ? { ticketId: ticketId.trim(), name: name.trim(), ...(needsVerify ? { verify: verify.trim() } : {}) }
+      : { name: name.trim() };
     socket.emit('join_game', payload, (res: any) => {
       setJoining(false);
       if (res.success) {
         storage.set(res.token);
         setPlayerInfo(res.player);
+        setNeedsVerify(false);
+        setVerify('');
       } else {
+        if (res.needsVerify) setNeedsVerify(true);
         setMessage(res.error);
       }
     });
@@ -168,7 +189,7 @@ export default function ParticipantView() {
             Tech<br />Sprint
           </Rise>
           <Rise d={240} as="p" className="dim" style={{ margin: '0 0 28px', fontSize: '1rem', lineHeight: 1.5 }}>
-            Three levels. Rising stakes. Answer fast — the quickest minds take the lead.
+            Round by round, the stakes rise. Answer fast — the quickest minds take the lead.
           </Rise>
 
           <Rise d={340}>
@@ -181,7 +202,7 @@ export default function ParticipantView() {
                     className="field"
                     type="text"
                     value={ticketId}
-                    onChange={(e) => setTicketId(e.target.value.toUpperCase())}
+                    onChange={(e) => { setTicketId(e.target.value.toUpperCase()); setNeedsVerify(false); setVerify(''); }}
                     maxLength={40}
                     placeholder="e.g. MMP49081761"
                     autoCapitalize="characters"
@@ -190,6 +211,25 @@ export default function ParticipantView() {
                     required
                     style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}
                   />
+                  {needsVerify && (
+                    <>
+                      <label htmlFor="player-verify" className="eyebrow">Last 4 digits of your registered phone</label>
+                      <input
+                        id="player-verify"
+                        className="field"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]{4}"
+                        value={verify}
+                        onChange={(e) => setVerify(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                        placeholder="••••"
+                        autoComplete="off"
+                        required
+                        autoFocus
+                        style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.3em' }}
+                      />
+                    </>
+                  )}
                 </>
               )}
               <label htmlFor="player-name" className="eyebrow">
@@ -230,6 +270,31 @@ export default function ParticipantView() {
           </h1>
           <Rise d={300} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
             Waiting for the host to begin.<br />Keep your eyes on the big screen.
+          </Rise>
+        </main>
+      </div>
+    );
+  }
+
+  // ─── Out of the game: cut after a level, or disqualified ───────────────────
+  if (playerInfo.status && playerInfo.status !== 'active' && gameState.state !== 'podium') {
+    const exit = playerInfo.exit || {};
+    const disqualified = playerInfo.status === 'disqualified';
+    return (
+      <div className="stage stage-grid" style={{ ['--heat' as string]: disqualified ? 'var(--bad)' : 'var(--bone-dim)' }}>
+        <Rings size="min(170vw, 760px)" style={centerRings} />
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise className="eyebrow eyebrow-heat">{disqualified ? 'Disqualified' : `Out after round ${exit.round ?? ''}`}</Rise>
+          <h1 className="display heat slam" style={{ fontSize: 'clamp(3.2rem, 16vw, 5.5rem)', margin: '12px 0 14px' }}>
+            {disqualified ? 'Disqualified' : "Didn't make the cut"}
+          </h1>
+          <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
+            {disqualified
+              ? (exit.note || 'The quiz host removed you from the game.')
+              : <>{exit.note}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.</>}
+          </Rise>
+          <Rise d={420} as="p" className="eyebrow" style={{ marginTop: 32 }}>
+            {disqualified ? 'Speak to the quiz desk if you think this is a mistake' : 'Stay and watch the rest on the big screen'}
           </Rise>
         </main>
       </div>
@@ -315,9 +380,11 @@ export default function ParticipantView() {
   // ─── Podium: final rank ────────────────────────────────────────────────────
   if (gameState.state === 'podium') {
     const board: any[] = gameState.finalLeaderboard || [];
-    const rank = board.findIndex(p => p.id === playerInfo.id) + 1;
-    const me = board[rank - 1];
-    const medal = rank === 1 ? 'Champion' : rank === 2 ? 'Runner-up' : rank === 3 ? 'Third place' : 'Final standing';
+    const disqualified = playerInfo.status === 'disqualified';
+    const ranked = board.filter(p => p.status !== 'disqualified');
+    const rank = disqualified ? 0 : ranked.findIndex(p => p.id === playerInfo.id) + 1;
+    const me = ranked[rank - 1];
+    const medal = disqualified ? 'Disqualified' : rank === 1 ? 'Champion' : rank === 2 ? 'Runner-up' : rank === 3 ? 'Third place' : 'Final standing';
     return (
       <div className="stage stage-grid">
         <Rings size="min(170vw, 760px)" style={centerRings} />
@@ -328,7 +395,7 @@ export default function ParticipantView() {
               <div className="display heat slam" style={{ fontSize: 'clamp(9rem, 50vw, 13rem)', lineHeight: 0.85, margin: '10px 0' }}>
                 <span style={{ fontSize: '0.45em', verticalAlign: 'top' }}>#</span>{rank}
               </div>
-              <Rise d={300} as="p" className="dim" style={{ margin: 0 }}>of {board.length} players</Rise>
+              <Rise d={300} as="p" className="dim" style={{ margin: 0 }}>of {ranked.length} players</Rise>
               <Rise d={420} className="panel bracketed" style={{ marginTop: 28, padding: '16px 28px' }}>
                 <div className="eyebrow">Final score</div>
                 <div className="display tabular" style={{ fontSize: '2.8rem', marginTop: 6 }}>{me?.score ?? 0}</div>

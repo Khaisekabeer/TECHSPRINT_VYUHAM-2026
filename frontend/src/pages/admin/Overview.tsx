@@ -78,11 +78,16 @@ function GameServerPanel() {
   );
 }
 
+interface GameRow { id: string; status: string; startedAt: string; players: number }
+
 export default function Overview() {
   const [stats, setStats] = useState<{ total: number; checkedIn: number } | null>(null);
   const [recent, setRecent] = useState<Recent[]>([]);
   const [requireCheckin, setRequireCheckin] = useState<boolean | null>(null);
   const [message, setMessage] = useState('');
+  // Games to export: the default is the latest finished one, not a reset or test run.
+  const [games, setGames] = useState<GameRow[]>([]);
+  const [gameId, setGameId] = useState('');
 
   const refresh = useCallback(async () => {
     try {
@@ -97,6 +102,7 @@ export default function Overview() {
   useEffect(() => {
     refresh();
     api('/settings').then(s => setRequireCheckin(s.requireCheckin)).catch(err => setMessage(err.message));
+    api<GameRow[]>('/results/games').then(setGames).catch(() => {});
     const id = setInterval(refresh, 10000);
     return () => clearInterval(id);
   }, [refresh]);
@@ -112,7 +118,13 @@ export default function Overview() {
   };
 
   const download = async () => {
-    try { await downloadFile('/results/latest.csv', 'techsprint-results.csv'); } catch (err: any) { setMessage(err.message); }
+    const path = gameId ? `/results/latest.csv?game=${encodeURIComponent(gameId)}` : '/results/latest.csv';
+    try { await downloadFile(path, 'techsprint-results.csv'); } catch (err: any) { setMessage(err.message); }
+  };
+  // Every candidate's actions in that game: joins, reconnects, answers, screen switches, eliminations.
+  const downloadLog = async () => {
+    const path = gameId ? `/results/activity.csv?game=${encodeURIComponent(gameId)}` : '/results/activity.csv';
+    try { await downloadFile(path, 'techsprint-activity-log.csv'); } catch (err: any) { setMessage(err.message); }
   };
 
   const pct = stats && stats.total ? Math.round((stats.checkedIn / stats.total) * 100) : 0;
@@ -155,11 +167,22 @@ export default function Overview() {
 
         <Panel>
           <div className="eyebrow">Results</div>
-          <h3 style={{ margin: '8px 0 6px', fontSize: '1.1rem' }}>Latest game standings</h3>
+          <h3 style={{ margin: '8px 0 6px', fontSize: '1.1rem' }}>Game standings</h3>
           <p className="dim" style={{ margin: '0 0 16px', fontSize: '0.88rem', lineHeight: 1.5 }}>
-            Ranks, scores, ticket IDs and registration details as a spreadsheet.
+            Results: ranks, finalists / eliminated / disqualified, scores and registration details. Activity log: everything each candidate did, in time order.
           </p>
-          <button className="btn btn-ghost" onClick={download}>Download CSV ↓</button>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <select className="field field-sm" value={gameId} onChange={e => setGameId(e.target.value)} aria-label="Game to export" style={{ flex: '1 1 220px' }}>
+              <option value="">Latest finished game</option>
+              {games.map(g => (
+                <option key={g.id} value={g.id}>
+                  {new Date(g.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · {g.players} players{g.status === 'finished' ? '' : ' · not finished'}
+                </option>
+              ))}
+            </select>
+            <button className="btn btn-ghost" onClick={download}>Results CSV ↓</button>
+            <button className="btn btn-ghost" onClick={downloadLog}>Activity log ↓</button>
+          </div>
         </Panel>
       </div>
 

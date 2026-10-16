@@ -13,7 +13,8 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 // Read-only view of the live event for volunteers (and admins/coordinators): who is
-// connected, how many have answered, what's on screen. No controls.
+// connected, how many have answered, what's on screen, and who to keep an eye on (left the
+// quiz screen during a question, very fast correct answers). No controls.
 export default function LiveMonitor() {
   const { socket, isConnected } = useSocket();
   const [gameState, setGameState] = useState<any>(null);
@@ -40,10 +41,19 @@ export default function LiveMonitor() {
   }, [socket, isConnected]);
 
   const phase = gameState?.state;
-  const online = players.filter(p => p.connected).length;
-  const offline = players.filter(p => !p.connected);
+  const active = players.filter(p => (p.status ?? 'active') === 'active');
+  const online = active.filter(p => p.connected).length;
+  const offline = active.filter(p => !p.connected);
   const pct = answerCount.total ? (answerCount.answered / answerCount.total) * 100 : 0;
-  const roster = [...offline, ...players.filter(p => p.connected)];
+  const flagScore = (p: any) => (p.flags?.away ?? 0) + (p.flags?.fastCorrect ?? 0);
+  // Flagged players first, then disconnected, then everyone else still in; the eliminated last.
+  const roster = [
+    ...active.filter(p => flagScore(p) > 0).sort((a, b) => flagScore(b) - flagScore(a)),
+    ...offline.filter(p => flagScore(p) === 0),
+    ...active.filter(p => p.connected && flagScore(p) === 0),
+    ...players.filter(p => (p.status ?? 'active') !== 'active'),
+  ];
+  const flaggedCount = active.filter(p => flagScore(p) > 0).length;
 
   return (
     <>
@@ -59,8 +69,9 @@ export default function LiveMonitor() {
           )}
         </Panel>
         <Panel>
-          <div className="eyebrow">Players online</div>
-          <div className="stat-value">{online}<span className="faint" style={{ fontSize: '1.4rem' }}> / {players.length}</span></div>
+          <div className="eyebrow">Still in · online</div>
+          <div className="stat-value">{online}<span className="faint" style={{ fontSize: '1.4rem' }}> / {active.length}</span></div>
+          {active.length !== players.length && <div className="dim" style={{ fontSize: '0.8rem', marginTop: 6 }}>{players.length - active.length} out of the game</div>}
         </Panel>
         <Panel>
           <div className="eyebrow">Disconnected</div>
@@ -93,19 +104,31 @@ export default function LiveMonitor() {
       <Panel style={{ padding: 0 }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span className="eyebrow">Players</span>
-          {offline.length > 0 && <span className="pill pill-bad">{offline.length} need help reconnecting</span>}
+          <span style={{ display: 'flex', gap: 8 }}>
+            {flaggedCount > 0 && <span className="pill pill-warn">⚠ {flaggedCount} to watch</span>}
+            {offline.length > 0 && <span className="pill pill-bad">{offline.length} need help reconnecting</span>}
+          </span>
         </div>
         {roster.length === 0 ? (
           <p className="dim" style={{ padding: '28px 20px', margin: 0, textAlign: 'center' }}>No players have joined yet</p>
         ) : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Player</th><th>Status</th><th style={{ textAlign: 'right' }}>Score</th></tr></thead>
+              <thead><tr><th>Player</th><th>Ticket</th><th>Status</th><th>Watch</th><th style={{ textAlign: 'right' }}>Score</th></tr></thead>
               <tbody>
                 {roster.map(p => (
-                  <tr key={p.id}>
+                  <tr key={p.id} style={{ opacity: (p.status ?? 'active') === 'active' ? 1 : 0.55 }}>
                     <td style={{ fontWeight: 600 }}>{p.name}</td>
-                    <td>{p.connected ? <span className="pill pill-good">Online</span> : <span className="pill pill-bad">Disconnected</span>}</td>
+                    <td className="mono" style={{ fontSize: '0.8rem' }}>{p.ticketId ?? '—'}</td>
+                    <td>
+                      {p.status === 'disqualified' ? <span className="pill pill-bad">Disqualified</span>
+                        : p.status === 'eliminated' ? <span className="pill">Out after round {p.exit?.round}</span>
+                        : p.connected ? <span className="pill pill-good">Online</span> : <span className="pill pill-bad">Disconnected</span>}
+                    </td>
+                    <td style={{ fontSize: '0.8rem' }}>
+                      {p.flags?.away > 0 && <span className="pill pill-warn" title="Switched away from the quiz page during a question">Left screen ×{p.flags.away} · {Math.round(p.flags.awayMs / 1000)}s</span>}
+                      {p.flags?.fastCorrect > 0 && <span className="pill pill-warn" style={{ marginLeft: 4 }} title="Correct in under 1.5 s on a 10 s+ question">Very fast ×{p.flags.fastCorrect}</span>}
+                    </td>
                     <td className="mono" style={{ textAlign: 'right' }}>{p.score}</td>
                   </tr>
                 ))}
@@ -115,7 +138,8 @@ export default function LiveMonitor() {
         )}
         <p className="dim" style={{ fontSize: '0.8rem', margin: 0, padding: '12px 20px', borderTop: '1px solid var(--line)' }}>
           A disconnected player can reopen the quiz page on their phone — they rejoin automatically with their score,
-          or re-enter their ticket ID on a new phone.
+          or re-enter their ticket ID (and the last 4 digits of their registered phone) on a new phone.
+          "Watch" flags are hints for invigilators, not proof — check in person before telling the host.
         </p>
       </Panel>
     </>

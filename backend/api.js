@@ -44,7 +44,7 @@ function validateQuestion(body) {
   const timeLimit = Math.round(Number(body.timeLimit));
   const points = Math.round(Number(body.points));
 
-  check([1, 2, 3].includes(level), 'Level must be 1, 2 or 3');
+  check(Number.isInteger(level) && level >= 1 && level <= 99, 'Choose a level');
   check(text.length > 0, 'Question text is required');
   check(options.length >= 2 && options.length <= 4, 'Multiple choice needs 2 to 4 options');
   check(new Set(options.map(o => o.toLowerCase())).size === options.length, 'Options must be different');
@@ -341,18 +341,54 @@ module.exports = function createApi(hooks) {
     res.json(await hooks.gameStatus());
   }));
 
-  api.get('/results/latest.csv', requireStaff(ADMIN), route(async (req, res) => {
-    const result = await store.latestResults();
-    if (!result) return res.status(404).json({ error: 'No game has been played yet' });
-    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const lines = [['Rank', 'Display name', 'Ticket ID', 'Registered name', 'College', 'Email', 'Phone', 'Score'].map(esc).join(',')];
-    result.rows.forEach((r, i) => lines.push([
-      r.final_rank ?? i + 1, r.name, r.ticket_id, r.registration?.name, r.registration?.college,
-      r.registration?.email, r.registration?.phone, r.score,
-    ].map(esc).join(',')));
+  api.get('/results/games', requireStaff(ADMIN), route(async (req, res) => {
+    res.json(await store.listGames());
+  }));
+
+  // Quote every cell, and stop spreadsheet apps from running a player-chosen name as a formula.
+  const csvCell = v => {
+    let s = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    return `"${s.replace(/"/g, '""')}"`;
+  };
+  const sendCsv = (res, filename, rows) => {
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', 'attachment; filename="techsprint-results.csv"');
-    res.send('﻿' + lines.join('\r\n'));
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'));
+  };
+  const gameParam = req => (typeof req.query.game === 'string' && /^[0-9a-f-]{36}$/i.test(req.query.game) ? req.query.game : null);
+  const STATUS_LABEL = { active: 'Finalist', eliminated: 'Eliminated', disqualified: 'Disqualified' };
+
+  // ?game=<id> for a specific game; otherwise the most recent finished one.
+  api.get('/results/latest.csv', requireStaff(ADMIN), route(async (req, res) => {
+    const gameId = gameParam(req);
+    const result = await store.gameResults(gameId);
+    if (!result) return res.status(404).json({ error: gameId ? 'Game not found' : 'No game has finished yet' });
+    const rows = [['Rank', 'Status', 'Out after round', 'Reason', 'Display name', 'Ticket ID', 'Registered name', 'College', 'Email', 'Phone', 'Score']];
+    for (const r of result.rows) {
+      const exit = Array.isArray(r.exit) ? r.exit[0] : r.exit;
+      rows.push([
+        r.final_rank ?? '', STATUS_LABEL[r.status] ?? r.status, exit?.round ?? '', exit?.note ?? '',
+        r.name, r.ticket_id, r.registration?.name, r.registration?.college, r.registration?.email, r.registration?.phone, r.score,
+      ]);
+    }
+    sendCsv(res, 'techsprint-results.csv', rows);
+  }));
+
+  // Everything each candidate did in a game, in time order (same ?game= rule).
+  api.get('/results/activity.csv', requireStaff(ADMIN), route(async (req, res) => {
+    const gameId = gameParam(req);
+    const result = await store.gameResults(gameId);
+    if (!result) return res.status(404).json({ error: gameId ? 'Game not found' : 'No game has finished yet' });
+    const rows = [['Time', 'Ticket ID', 'Player', 'Event', 'Question #', 'Details', 'IP']];
+    for (const e of await store.gameEvents(result.game.id)) {
+      const detail = Object.entries(e.detail || {})
+        .filter(([, v]) => v !== null && v !== '')
+        .map(([k, v]) => `${k}=${v}`)
+        .join('; ');
+      rows.push([new Date(e.at).toISOString(), e.ticket_id, e.player_name, e.event, e.question_index ?? '', detail, e.ip]);
+    }
+    sendCsv(res, 'techsprint-activity-log.csv', rows);
   }));
 
   // ─── Question bank (quiz master + PIN; contents encrypted at rest) ──────────
@@ -368,8 +404,12 @@ module.exports = function createApi(hooks) {
     res.json((await store.listQuestionRows()).map(r => questionKeys.decryptRow(r, dekOf(req))));
   }));
 
+  const checkLevelExists = async level =>
+    check((await store.listLevels()).some(l => l.number === level), 'That level no longer exists — reload the page');
+
   api.post('/questions', small, ...qm, route(async (req, res) => {
     const q = validateQuestion(req.body || {});
+    await checkLevelExists(q.level);
     const row = await store.createQuestion(q, sealContent(req, q));
     hooks.onQuestionsChanged(dekOf(req));
     res.status(201).json(questionKeys.decryptRow(row, dekOf(req)));
@@ -377,6 +417,7 @@ module.exports = function createApi(hooks) {
 
   api.put('/questions/:id', small, ...qm, route(async (req, res) => {
     const q = validateQuestion(req.body || {});
+    await checkLevelExists(q.level);
     const row = await store.updateQuestion(Number(req.params.id), q, sealContent(req, q));
     if (!row) return res.status(404).json({ error: 'Question not found' });
     hooks.onQuestionsChanged(dekOf(req));
@@ -396,10 +437,49 @@ module.exports = function createApi(hooks) {
     res.json({ success: true });
   }));
 
+  // Levels (rounds): names and multipliers aren't secret, but only quiz masters manage them.
+  function validateLevel(body) {
+    const name = str(body?.name, 40);
+    const multiplier = Math.round(Number(body?.multiplier) * 100) / 100;
+    const top = body?.qualifyTop;
+    const qualifyTop = top === null || top === undefined || top === '' ? null : Number(top);
+    check(name, 'Level name is required');
+    check(multiplier > 0 && multiplier <= 10, 'Multiplier must be between 0.1 and 10');
+    check(qualifyTop === null || (Number.isInteger(qualifyTop) && qualifyTop >= 1 && qualifyTop <= 10000),
+      'Players who advance must be a whole number (or empty for everyone)');
+    return { name, multiplier, qualify_top: qualifyTop };
+  }
+
+  api.get('/levels', requireStaff(QM), route(async (req, res) => {
+    res.json(await store.listLevels());
+  }));
+
+  api.post('/levels', small, ...qm, route(async (req, res) => {
+    const levels = await store.listLevels();
+    check(levels.length < 20, 'At most 20 levels');
+    check(!levels.length || levels[levels.length - 1].number < 99, 'Level numbers are used up');
+    const level = await store.createLevel(validateLevel(req.body));
+    res.status(201).json(level);
+  }));
+
+  api.put('/levels/:level', small, ...qm, route(async (req, res) => {
+    const level = await store.updateLevel(Number(req.params.level), validateLevel(req.body));
+    if (!level) return res.status(404).json({ error: 'Level not found' });
+    hooks.onQuestionsChanged(dekOf(req));
+    res.json(level);
+  }));
+
+  api.delete('/levels/:level', ...qm, route(async (req, res) => {
+    const number = Number(req.params.level);
+    check((await store.countQuestionsInLevel(number)) === 0, 'Move or delete the questions in this level first');
+    await store.deleteLevel(number);
+    res.json({ success: true });
+  }));
+
   api.put('/levels/:level/timer', small, ...qm, route(async (req, res) => {
     const level = Number(req.params.level);
     const seconds = Math.round(Number(req.body?.seconds));
-    check([1, 2, 3].includes(level), 'Level must be 1, 2 or 3');
+    await checkLevelExists(level);
     check(seconds >= 5 && seconds <= 300, 'Timer must be between 5 and 300 seconds');
     await store.setLevelTimer(level, seconds);
     hooks.onQuestionsChanged(dekOf(req));

@@ -10,6 +10,9 @@ const remote = require('./remoteGame');
 function createApp(hooks) {
   const app = express();
   app.disable('x-powered-by');
+  // On Vercel the visitor's IP is in X-Forwarded-For (Vercel overwrites it, so it can't be
+  // spoofed); login attempt limits are keyed on it. Elsewhere, use the connection address.
+  if (process.env.VERCEL) app.set('trust proxy', true);
   app.use(cors());
   app.use('/api', createApi(hooks));
   return app;
