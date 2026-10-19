@@ -1,0 +1,56 @@
+[
+  {
+    "level": 1,
+    "text": "What does HTML stand for?",
+    "type": "mcq",
+    "options": ["Hyper Text Markup Language", "Hyperlinks and Text Markup Language", "Home Tool Markup Language", "Hyper Tool Markup Language"],
+    "correctAnswer": "Hyper Text Markup Language",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 1,
+    "text": "Which company developed React?",
+    "type": "mcq",
+    "options": ["Google", "Facebook (Meta)", "Microsoft", "Twitter"],
+    "correctAnswer": "Facebook (Meta)",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "CSS is used for styling web pages.",
+    "type": "tf",
+    "options": ["True", "False"],
+    "correctAnswer": "True",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "What is the time complexity of binary search?",
+    "type": "mcq",
+    "options": ["O(1)", "O(n)", "O(log n)", "O(n^2)"],
+    "correctAnswer": "O(log n)",
+    "timeLimit": 25,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "Which port is commonly used for HTTPS?",
+    "type": "mcq",
+    "options": ["80", "443", "22", "21"],
+    "correctAnswer": "443",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "What does API stand for?",
+    "type": "mcq",
+    "options": ["Application Programming Interface", "Advanced Programming Integration", "Automated Process Interface", "Application Protocol Interface"],
+    "correctAnswer": "Application Programming Interface",
+    "timeLimit": 15,
+    "points": 1000
+  }
+]
