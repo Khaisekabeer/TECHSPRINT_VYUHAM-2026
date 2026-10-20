@@ -3,11 +3,13 @@
 //   quizmaster   encrypted question bank (behind a second PIN); loads questions into the game
 //   coordinator  conducts the live event (host console, via Socket.IO)
 //   volunteer    pass check-in and live monitoring
+const crypto = require('crypto');
 const express = require('express');
 const auth = require('./auth');
 const store = require('./store');
 const vault = require('./vault');
 const questionKeys = require('./questionKeys');
+const mail = require('./mail');
 
 const { requireStaff, requireVault } = auth;
 const ADMIN = 'admin';
@@ -91,6 +93,83 @@ module.exports = function createApi(hooks) {
   api.post('/auth/logout', requireStaff(), route(async (req, res) => {
     await auth.endSession(req.session.tokenHash);
     res.json({ success: true });
+  }));
+
+  // ─── Password reset via email OTP ──────────────────────────────────────────
+  api.post('/auth/forgot-password', small, route(async (req, res) => {
+    const ipKey = `forgot:${req.ip}`;
+    if (auth.isLockedOut(ipKey)) return res.status(429).json({ error: 'Too many reset requests. Wait a few minutes.' });
+
+    const emailOrUsername = str(req.body?.email || req.body?.username, 160).toLowerCase();
+    check(emailOrUsername, 'Enter your registered email address or username');
+
+    const staff = await store.findStaffForLogin(emailOrUsername);
+    if (!staff || !staff.active) {
+      return res.json({ success: true, message: 'If an active account exists with that email, a verification code has been sent.' });
+    }
+
+    const targetEmail = staff.username.includes('@') ? staff.username : null;
+    if (!targetEmail) {
+      return res.status(400).json({ error: 'This account does not have an email address associated with it. Contact an administrator to reset your password.' });
+    }
+
+    const otp = String(crypto.randomInt(100000, 1000000));
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+
+    await store.setSetting(`otp:${staff.id}`, {
+      otpHash,
+      email: targetEmail,
+      expiresAt,
+      attempts: 0,
+    });
+
+    try {
+      await mail.sendPasswordResetOtp(targetEmail, otp, staff.display_name);
+      auth.recordFailure(ipKey, 5, 15 * 60 * 1000);
+      res.json({ success: true, staffId: staff.id, email: targetEmail, message: 'Verification code sent to your email.' });
+    } catch (err) {
+      console.error('[forgot-password]', err.message);
+      res.status(500).json({ error: 'Could not send verification email right now. Please try again later or contact admin.' });
+    }
+  }));
+
+  api.post('/auth/reset-password', small, route(async (req, res) => {
+    const emailOrUsername = str(req.body?.email || req.body?.username, 160).toLowerCase();
+    const otp = str(String(req.body?.otp ?? ''), 10).trim();
+    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+
+    check(emailOrUsername, 'Username or email is required');
+    check(otp.length === 6, 'Verification code must be 6 digits');
+    check(newPassword.length >= 8, 'New password must be at least 8 characters');
+
+    const staff = await store.findStaffForLogin(emailOrUsername);
+    if (!staff || !staff.active) {
+      return res.status(400).json({ error: 'Invalid reset request' });
+    }
+
+    const record = await store.getSetting(`otp:${staff.id}`);
+    if (!record || !record.expiresAt || Date.now() > record.expiresAt) {
+      return res.status(400).json({ error: 'Verification code has expired. Please request a new code.' });
+    }
+
+    if (record.attempts >= 5) {
+      await store.deleteSetting(`otp:${staff.id}`);
+      return res.status(429).json({ error: 'Too many failed attempts. Please request a new code.' });
+    }
+
+    const givenHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (givenHash !== record.otpHash) {
+      record.attempts = (record.attempts || 0) + 1;
+      await store.setSetting(`otp:${staff.id}`, record);
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
+
+    await store.updateStaff(staff.id, { password_hash: await auth.hashSecret(newPassword) });
+    await store.deleteSetting(`otp:${staff.id}`);
+    await store.endStaffSessions(staff.id);
+
+    res.json({ success: true, message: 'Password has been reset successfully. You can now sign in.' });
   }));
 
   // Quiz master's second factor: the PIN unlocks the encryption key of the question bank.
@@ -207,6 +286,13 @@ module.exports = function createApi(hooks) {
     }
     if (req.body.password !== undefined) {
       check(typeof req.body.password === 'string' && req.body.password.length >= 8, 'Password must be at least 8 characters');
+      const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+      check(currentPassword.length > 0, 'Your current admin password is required to change a password');
+      const currentAdmin = await store.getStaffRow(req.session.staff.id);
+      const isCurrentPasswordValid = currentAdmin && await auth.verifySecret(currentPassword, currentAdmin.password_hash);
+      if (!isCurrentPasswordValid) {
+        return res.status(401).json({ error: 'Incorrect current password' });
+      }
       fields.password_hash = await auth.hashSecret(req.body.password);
       endSessions = !isSelf || endSessions;
     }

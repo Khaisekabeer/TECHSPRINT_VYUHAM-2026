@@ -219,8 +219,17 @@ async function getSettings() {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 }
 
+async function getSetting(key) {
+  const rows = await run(supabase.from('settings').select('value').eq('key', key).limit(1), 'Loading setting');
+  return rows[0]?.value ?? null;
+}
+
 function setSetting(key, value) {
   return run(supabase.from('settings').upsert({ key, value, updated_at: new Date().toISOString() }), 'Saving setting');
+}
+
+function deleteSetting(key) {
+  return run(supabase.from('settings').delete().eq('key', key), 'Deleting setting');
 }
 
 // ─── Question bank (content is encrypted; see vault.js) ───────────────────────
@@ -442,7 +451,9 @@ module.exports = {
   checkinStats,
   recentCheckins,
   getSettings,
+  getSetting,
   setSetting,
+  deleteSetting,
   listQuestionRows,
   createQuestion,
   updateQuestion,

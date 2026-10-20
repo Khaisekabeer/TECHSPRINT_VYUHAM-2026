@@ -15,6 +15,8 @@ export default function StaffManager() {
   const me = useStaffSession();
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [passwordTarget, setPasswordTarget] = useState<StaffRow | null>(null);
 
   const load = useCallback(() => {
     api<StaffRow[]>('/staff').then(setStaff).catch(err => setError(err.message));
@@ -23,19 +25,16 @@ export default function StaffManager() {
 
   const patch = async (s: StaffRow, body: Record<string, unknown>, done?: string) => {
     setError('');
+    setSuccess('');
     try {
       await api(`/staff/${s.id}`, { method: 'PATCH', body });
       load();
-      if (done) alert(done);
+      if (done) setSuccess(done);
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  const resetPassword = (s: StaffRow) => {
-    const password = prompt(`New password for ${s.displayName} (at least 8 characters):`);
-    if (password) patch(s, { password }, `Password updated for ${s.displayName}.`);
-  };
   const setPin = (s: StaffRow) => {
     const pin = prompt(`New question-bank PIN for ${s.displayName} (4-8 digits).\n\nThey'll get the question key back the next time another quiz master unlocks the bank, or with the recovery code.`);
     if (pin) patch(s, { pin }, `PIN updated for ${s.displayName}.`);
@@ -51,6 +50,7 @@ export default function StaffManager() {
       <Panel style={{ padding: 0 }}>
         <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)' }} className="eyebrow">Staff accounts · {staff.length}</div>
         {error && <p role="alert" className="error-text" style={{ padding: '12px 20px' }}>{error}</p>}
+        {success && <p role="status" style={{ padding: '12px 20px', color: 'var(--good)', fontSize: '0.9rem' }}>{success}</p>}
         <div className="table-wrap">
           <table className="table">
             <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th /></tr></thead>
@@ -62,7 +62,7 @@ export default function StaffManager() {
                   <td><span className={`pill${s.role === 'admin' ? ' pill-dark' : ''}`}>{ROLE_LABEL[s.role]}</span></td>
                   <td>{s.active ? <span className="pill pill-good">Active</span> : <span className="pill pill-bad">Disabled</span>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-ghost btn-sm" onClick={() => resetPassword(s)}>Password</button>{' '}
+                    <button className="btn btn-ghost btn-sm" onClick={() => setPasswordTarget(s)}>Password</button>{' '}
                     {s.role === 'quizmaster' && <><button className="btn btn-ghost btn-sm" onClick={() => setPin(s)}>PIN</button>{' '}</>}
                     {s.id !== me?.staff.id && (
                       <button className={`btn btn-sm ${s.active ? 'btn-danger' : 'btn-ghost'}`} onClick={() => toggleActive(s)}>
@@ -76,7 +76,128 @@ export default function StaffManager() {
           </table>
         </div>
       </Panel>
+
+      {passwordTarget && (
+        <ChangePasswordModal
+          target={passwordTarget}
+          onClose={() => setPasswordTarget(null)}
+          onSuccess={(msg) => {
+            setSuccess(msg);
+            load();
+          }}
+        />
+      )}
     </>
+  );
+}
+
+function ChangePasswordModal({ target, onClose, onSuccess }: { target: StaffRow; onClose: () => void; onSuccess: (msg: string) => void }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (newPassword.length < 8) {
+      setError('New password must be at least 8 characters long');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('New passwords do not match');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api(`/staff/${target.id}`, {
+        method: 'PATCH',
+        body: { currentPassword, password: newPassword },
+      });
+      onSuccess(`Password updated for ${target.displayName}.`);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to update password');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      inset: 0,
+      background: 'rgba(0, 0, 0, 0.75)',
+      backdropFilter: 'blur(4px)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000,
+      padding: 20,
+    }}>
+      <Panel style={{ width: '100%', maxWidth: 420, padding: 28, position: 'relative' }}>
+        <div className="eyebrow" style={{ color: 'var(--heat)' }}>Admin Verification Required</div>
+        <h2 style={{ margin: '8px 0 16px', fontSize: '1.25rem' }}>Change Password</h2>
+        <p className="dim" style={{ fontSize: '0.9rem', marginBottom: 20 }}>
+          Changing password for <strong>{target.displayName}</strong> (<span className="mono">{target.username}</span>).
+        </p>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label className="eyebrow" htmlFor="current-pw">Your Current Admin Password</label>
+            <input
+              id="current-pw"
+              className="field field-sm"
+              type="password"
+              value={currentPassword}
+              onChange={e => setCurrentPassword(e.target.value)}
+              placeholder="Enter your current password to authorize"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="eyebrow" htmlFor="new-pw">New Password (min 8 chars)</label>
+            <input
+              id="new-pw"
+              className="field field-sm"
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              minLength={8}
+              required
+              autoComplete="new-password"
+            />
+          </div>
+
+          <div>
+            <label className="eyebrow" htmlFor="confirm-pw">Confirm New Password</label>
+            <input
+              id="confirm-pw"
+              className="field field-sm"
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              minLength={8}
+              required
+              autoComplete="new-password"
+            />
+          </div>
+
+          {error && <p role="alert" className="error-text" style={{ margin: 0 }}>{error}</p>}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 10, justifyContent: 'flex-end' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onClose} disabled={busy}>
+              Cancel
+            </button>
+            <button type="submit" className="btn btn-heat btn-sm" disabled={busy}>
+              {busy ? 'Updating…' : 'Update Password'}
+            </button>
+          </div>
+        </form>
+      </Panel>
+    </div>
   );
 }
 
