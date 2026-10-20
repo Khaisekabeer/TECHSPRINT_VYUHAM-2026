@@ -273,7 +273,6 @@ function deleteBank(id) {
 }
 
 // ─── Questions of a set (content is encrypted; see vault.js) ─────────────────
->>>>>>> 74eb058b6936520f5550c304fbe0b8643409bd99
 // Rows carry plaintext metadata (level, order, type, timer, points) and an encrypted `payload`
 // with the text, options and answer. Callers encrypt/decrypt; this layer only stores.
 const EMPTY_CONTENT = { text: null, options: [], correct_answer: null };
