@@ -20,6 +20,7 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] },
 const game = createGame(io, { serverInfo: () => ({ lanAddresses: lanAddresses(), port: PORT }) });
 
 handler.use(createApp(localHooks(game)));
+handler.get('/live-image/:index', game.liveImage);
 
 // Frontend (production build) with SPA fallback for React Router (/host, /screen, ...).
 const distDir = path.join(__dirname, '../frontend/dist');

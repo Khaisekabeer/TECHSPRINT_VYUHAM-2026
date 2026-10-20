@@ -1,112 +1,230 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { api, ApiError } from '../../lib/api';
+import { api, ApiError, fetchObjectUrl } from '../../lib/api';
 import { OPTION_LABELS, Panel } from '../../components/ui';
 
 interface Question {
   id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
   options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
+  imageId?: string | null; // picture for "identify this person / object" questions (stored encrypted)
 }
 type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
 // Levels (rounds) are set up by the quiz master and played in this order.
-interface Level { number: number; name: string; multiplier: number; qualifyTop: number | null }
+interface Level { number: number; name: string; multiplier: number; qualifyTop: number | null; theme: string | null }
+
+// Looks for the projector and phones during a level (see comic.css).
+const THEMES: { id: string; label: string; swatch: string }[] = [
+  { id: 'blast', label: 'Blast — yellow comic burst', swatch: '#ffc21a' },
+  { id: 'pop', label: 'Pop — yellow & pink pop art', swatch: '#ff4fa8' },
+  { id: 'arcade', label: 'Arcade — lime game burst', swatch: '#a6d91a' },
+  { id: 'circuit', label: 'Circuit — blue tech windows', swatch: '#93b8ff' },
+  { id: 'classic', label: 'Classic — plain white', swatch: '#ffffff' },
+];
 const blank = (level: number): Draft => ({
-  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true,
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null,
 });
 
+interface SetSummary { id: string; name: string; ready: boolean; questions: number; active: number; levels: number }
+interface OpenSet { id: string; name: string }
+
+// Question sets ("Main set", "Trial set", ...): each has its own PIN, chosen by the quiz master.
+// The coordinator enters that PIN in the host console to load the set into the game.
 export default function Questions() {
-  const [vaultUntil, setVaultUntil] = useState<number | null>(null);
+  const [open, setOpen] = useState<{ until: number; bank: OpenSet } | null>(null);
   const [checked, setChecked] = useState(false);
-  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ code: string; setName: string } | null>(null);
 
   useEffect(() => {
-    api('/auth/me').then(r => setVaultUntil(r.vaultUntil)).catch(() => {}).finally(() => setChecked(true));
+    api('/auth/me')
+      .then(r => { if (r.vaultUntil && r.vaultBank) setOpen({ until: r.vaultUntil, bank: r.vaultBank }); })
+      .catch(() => {})
+      .finally(() => setChecked(true));
   }, []);
 
   // Re-lock in the UI when the server-side unlock expires.
   useEffect(() => {
-    if (!vaultUntil) return;
-    const id = setTimeout(() => setVaultUntil(null), Math.max(0, vaultUntil - Date.now()));
+    if (!open) return;
+    const id = setTimeout(() => setOpen(null), Math.max(0, open.until - Date.now()));
     return () => clearTimeout(id);
-  }, [vaultUntil]);
+  }, [open]);
+
+  const opened = (r: { vaultUntil: number; bank: OpenSet; recoveryCode?: string }) => {
+    setOpen({ until: r.vaultUntil, bank: r.bank });
+    if (r.recoveryCode) setNotice({ code: r.recoveryCode, setName: r.bank.name });
+  };
 
   if (!checked) return null;
-  if (recoveryCode) return <RecoveryCodeNotice code={recoveryCode} onDone={() => setRecoveryCode(null)} />;
-  if (!vaultUntil || vaultUntil <= Date.now()) {
-    return <VaultLock onUnlock={(until, code) => { setVaultUntil(until); if (code) setRecoveryCode(code); }} />;
-  }
-  return <QuestionBank vaultUntil={vaultUntil} onLocked={() => setVaultUntil(null)} onRecoveryCode={setRecoveryCode} />;
+  if (notice) return <RecoveryCodeNotice code={notice.code} setName={notice.setName} onDone={() => setNotice(null)} />;
+  if (!open || open.until <= Date.now()) return <SetPicker onOpened={opened} />;
+  return (
+    <QuestionBank key={open.bank.id} bank={open.bank} vaultUntil={open.until} onLocked={() => setOpen(null)}
+      onRenamed={name => setOpen({ ...open, bank: { ...open.bank, name } })}
+      onRecoveryCode={code => setNotice({ code, setName: open.bank.name })} />
+  );
 }
 
-// ─── Second sign-in: quiz master PIN (decrypts the bank's key on the server) ──
-function VaultLock({ onUnlock }: { onUnlock: (until: number, recoveryCode?: string) => void }) {
+// ─── Pick a set and open it with its PIN; create a set; first-time setup ──────
+type SetMode = { kind: 'open' | 'setup' | 'recover'; set: SetSummary } | { kind: 'create' } | null;
+
+const pinField = (value: string, onChange: (v: string) => void, label: string, id: string, autoFocus = false) => (
+  <div className="form-row">
+    <label className="eyebrow" htmlFor={id}>{label}</label>
+    <input id={id} className="field" type="password" inputMode="numeric" autoComplete="off" value={value} autoFocus={autoFocus}
+      onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 12))}
+      style={{ fontFamily: 'var(--font-mono)', fontSize: '1.3rem', letterSpacing: '0.4em', textAlign: 'center' }} />
+  </div>
+);
+
+function SetPicker({ onOpened }: { onOpened: (r: { vaultUntil: number; bank: OpenSet; recoveryCode?: string }) => void }) {
+  const [sets, setSets] = useState<SetSummary[] | null>(null);
+  const [mode, setMode] = useState<SetMode>(null);
+  const [name, setName] = useState('');
   const [pin, setPin] = useState('');
-  const [recovery, setRecovery] = useState('');
-  const [needsRecovery, setNeedsRecovery] = useState(false);
+  const [pin2, setPin2] = useState('');
+  const [oldPin, setOldPin] = useState('');
+  const [code, setCode] = useState('');
+  const [useOldCode, setUseOldCode] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => { api<SetSummary[]>('/banks').then(setSets).catch(err => setError(err.message)); }, []);
+
+  const choose = (m: SetMode) => { setMode(m); setPin(''); setPin2(''); setOldPin(''); setCode(''); setName(''); setError(''); setUseOldCode(false); };
+  const needsNewPin = mode && mode.kind !== 'open';
+  const pinsOk = pin.length >= 4 && (!needsNewPin || pin === pin2);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!mode) return;
     setBusy(true);
     setError('');
     try {
-      const r = needsRecovery
-        ? await api('/auth/vault/recover', { method: 'POST', body: { pin, recoveryCode: recovery } })
-        : await api('/auth/vault', { method: 'POST', body: { pin } });
-      onUnlock(r.vaultUntil, r.recoveryCode);
+      const r = mode.kind === 'create'
+        ? await api('/banks', { method: 'POST', body: { name: name.trim(), pin } })
+        : mode.kind === 'open'
+          ? await api(`/banks/${mode.set.id}/open`, { method: 'POST', body: { pin } })
+          : mode.kind === 'recover'
+            ? await api(`/banks/${mode.set.id}/recover`, { method: 'POST', body: { recoveryCode: code, pin } })
+            : await api(`/banks/${mode.set.id}/setup`, { method: 'POST', body: { pin, ...(useOldCode ? { oldRecoveryCode: code } : { oldPin }) } });
+      onOpened(r);
     } catch (err) {
-      if (err instanceof ApiError && err.data?.needsGrant) setNeedsRecovery(true);
       setError((err as Error).message);
-      if (!(err instanceof ApiError && err.data?.needsGrant)) setPin('');
+      setPin(mode.kind === 'open' ? '' : pin);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <Panel bracketed className="panel-lg" style={{ maxWidth: 440, margin: '24px auto', padding: '34px 30px', textAlign: 'center' }}>
-      <div style={{ fontSize: '2rem' }} aria-hidden="true">🔒</div>
-      <div className="eyebrow" style={{ marginTop: 10 }}>Encrypted · quiz master only</div>
-      <h2 className="display" style={{ fontSize: '2.6rem', margin: '8px 0 8px' }}>Question bank</h2>
-      <p className="dim" style={{ margin: '0 0 22px', fontSize: '0.9rem', lineHeight: 1.5 }}>
-        Questions are stored encrypted. Your PIN unlocks them for 30 minutes on this session.
-      </p>
-      <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <input className="field" type="password" inputMode="numeric" autoComplete="one-time-code" value={pin}
-          onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 8))} aria-label="PIN" autoFocus
-          style={{ textAlign: 'center', fontFamily: 'var(--font-mono)', fontSize: '1.6rem', letterSpacing: '0.5em' }} />
-        {needsRecovery && (
-          <>
-            <label className="eyebrow" htmlFor="recovery" style={{ textAlign: 'left', marginTop: 6 }}>Recovery code</label>
-            <input id="recovery" className="field" value={recovery} onChange={e => setRecovery(e.target.value.toUpperCase())}
-              placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autoComplete="off" spellCheck={false}
-              style={{ fontFamily: 'var(--font-mono)', textAlign: 'center', fontSize: '0.95rem' }} />
-          </>
-        )}
-        <button className="btn btn-heat btn-block" disabled={busy || pin.length < 4 || (needsRecovery && recovery.replace(/[^A-Z0-9]/g, '').length < 24)}>
-          {busy ? 'Checking…' : needsRecovery ? 'Unlock with recovery code' : 'Unlock'}
-        </button>
-        {error && <p role="alert" className="error-text">{error}</p>}
-        {!needsRecovery && (
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setNeedsRecovery(true)} style={{ alignSelf: 'center' }}>
-            Use recovery code
+    <Panel bracketed className="panel-lg" style={{ maxWidth: 560, margin: '24px auto', padding: '30px 28px' }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ fontSize: '2rem' }} aria-hidden="true">🔒</div>
+        <div className="eyebrow" style={{ marginTop: 8 }}>Encrypted · each set has its own PIN</div>
+        <h2 className="display" style={{ fontSize: '2.6rem', margin: '8px 0 8px' }}>Question sets</h2>
+        <p className="dim" style={{ margin: '0 0 20px', fontSize: '0.88rem', lineHeight: 1.5 }}>
+          Open a set with its PIN to edit it (30 minutes). Give the coordinator the PIN of the set to play — they enter it in the host console to load it.
+        </p>
+      </div>
+
+      {!mode && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sets === null && !error && <p className="dim" style={{ textAlign: 'center' }}>Loading…</p>}
+          {sets?.map(s => (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700 }}>{s.name}</div>
+                <div className="dim" style={{ fontSize: '0.8rem' }}>{s.questions} questions · {s.levels} levels{s.ready ? '' : ' · needs a PIN'}</div>
+              </div>
+              {s.ready ? (
+                <>
+                  <button className="btn btn-ghost btn-sm" onClick={() => choose({ kind: 'recover', set: s })}>Forgot PIN</button>
+                  <button className="btn btn-heat btn-sm" onClick={() => choose({ kind: 'open', set: s })}>Open</button>
+                </>
+              ) : (
+                <button className="btn btn-heat btn-sm" onClick={() => choose({ kind: 'setup', set: s })}>Set up</button>
+              )}
+            </div>
+          ))}
+          <button className="btn btn-ghost" onClick={() => choose({ kind: 'create' })} disabled={(sets?.length ?? 0) >= 20}>+ New question set</button>
+        </div>
+      )}
+
+      {mode && (
+        <form onSubmit={submit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>
+            {mode.kind === 'create' ? 'New question set'
+              : mode.kind === 'open' ? `Open "${mode.set.name}"`
+              : mode.kind === 'recover' ? `New PIN for "${mode.set.name}"`
+              : `Set up "${mode.set.name}"`}
+          </div>
+
+          {mode.kind === 'create' && (
+            <div className="form-row">
+              <label className="eyebrow" htmlFor="set-name">Name</label>
+              <input id="set-name" className="field" value={name} maxLength={60} onChange={e => setName(e.target.value)} placeholder="e.g. Main set" autoFocus required />
+            </div>
+          )}
+
+          {mode.kind === 'setup' && mode.set.questions > 0 && (
+            <>
+              <p className="dim" style={{ margin: 0, fontSize: '0.85rem', lineHeight: 1.5 }}>
+                These {mode.set.questions} questions were encrypted before sets existed. Confirm once with your <strong>old quiz master PIN</strong>
+                {' '}(the one you used to unlock the question bank) — or the old recovery code — to move them into this set.
+              </p>
+              {useOldCode ? (
+                <div className="form-row">
+                  <label className="eyebrow" htmlFor="old-code">Old recovery code</label>
+                  <input id="old-code" className="field" value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                    autoComplete="off" spellCheck={false} style={{ fontFamily: 'var(--font-mono)', textAlign: 'center' }} />
+                </div>
+              ) : pinField(oldPin, setOldPin, 'Old quiz master PIN', 'old-pin', true)}
+              <button type="button" className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => { setUseOldCode(!useOldCode); setCode(''); setOldPin(''); }}>
+                {useOldCode ? 'Use the old PIN instead' : 'Use the old recovery code instead'}
+              </button>
+            </>
+          )}
+
+          {mode.kind === 'recover' && (
+            <div className="form-row">
+              <label className="eyebrow" htmlFor="rec-code">This set's recovery code</label>
+              <input id="rec-code" className="field" value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
+                autoComplete="off" spellCheck={false} autoFocus style={{ fontFamily: 'var(--font-mono)', textAlign: 'center' }} />
+            </div>
+          )}
+
+          {mode.kind === 'open'
+            ? pinField(pin, setPin, 'Set PIN', 'set-pin', true)
+            : (
+              <>
+                {pinField(pin, setPin, mode.kind === 'create' ? 'Choose the set PIN (4–12 digits)' : 'New set PIN (4–12 digits)', 'new-pin')}
+                {pinField(pin2, setPin2, 'Type it again', 'new-pin2')}
+                {pin2.length >= 4 && pin !== pin2 && <p className="error-text">The PINs don't match</p>}
+              </>
+            )}
+
+          <button className="btn btn-heat btn-block" disabled={busy || !pinsOk || (mode.kind === 'create' && !name.trim())
+            || (mode.kind === 'setup' && mode.set.questions > 0 && (useOldCode ? code.replace(/[^A-Z0-9]/g, '').length < 24 : oldPin.length < 4))
+            || (mode.kind === 'recover' && code.replace(/[^A-Z0-9]/g, '').length < 24)}>
+            {busy ? 'Checking…' : mode.kind === 'create' ? 'Create set' : mode.kind === 'open' ? 'Open' : mode.kind === 'recover' ? 'Set new PIN & open' : 'Set PIN & open'}
           </button>
-        )}
-      </form>
+          {error && <p role="alert" className="error-text">{error}</p>}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => choose(null)} style={{ alignSelf: 'center' }}>← All sets</button>
+        </form>
+      )}
+      {!mode && error && <p role="alert" className="error-text" style={{ marginTop: 12 }}>{error}</p>}
     </Panel>
   );
 }
 
-// Shown exactly once, when the question bank is encrypted for the first time.
-function RecoveryCodeNotice({ code, onDone }: { code: string; onDone: () => void }) {
+// Shown once: when a set is created or set up, and when its recovery code is replaced.
+function RecoveryCodeNotice({ code, setName, onDone }: { code: string; setName: string; onDone: () => void }) {
   const [saved, setSaved] = useState(false);
   return (
     <Panel bracketed className="panel-lg" style={{ maxWidth: 520, margin: '24px auto', padding: '34px 30px', textAlign: 'center' }}>
-      <div className="eyebrow">Question bank encrypted</div>
-      <h2 className="display" style={{ fontSize: '2.4rem', margin: '10px 0 10px' }}>Save your recovery code</h2>
+      <div className="eyebrow">Recovery code · {setName}</div>
+      <h2 className="display" style={{ fontSize: '2.4rem', margin: '10px 0 10px' }}>Save this code</h2>
       <p className="dim" style={{ margin: '0 0 20px', fontSize: '0.92rem', lineHeight: 1.55 }}>
-        If every quiz master's PIN is lost or reset, this code is the <strong>only</strong> way to decrypt the questions.
+        If this set's PIN is forgotten, this code is the <strong>only</strong> way to set a new one.
         Write it down and keep it somewhere safe. It will not be shown again.
       </p>
       <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 600, letterSpacing: '0.06em', padding: '18px 12px', border: '2px dashed var(--line-strong)', borderRadius: 'var(--radius)', userSelect: 'all', wordBreak: 'break-all' }}>
@@ -116,14 +234,14 @@ function RecoveryCodeNotice({ code, onDone }: { code: string; onDone: () => void
         <input type="checkbox" checked={saved} onChange={e => setSaved(e.target.checked)} style={{ width: 18, height: 18 }} />
         I have saved the recovery code
       </label>
-      <button className="btn btn-heat btn-block" disabled={!saved} onClick={onDone}>Continue to the question bank</button>
+      <button className="btn btn-heat btn-block" disabled={!saved} onClick={onDone}>Continue to the set</button>
     </Panel>
   );
 }
 
-// ─── Load into game: the only way questions reach the live event ──────────────
-function LoadIntoGame({ guard, refreshKey }: { guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>; refreshKey: number }) {
-  const [status, setStatus] = useState<{ online?: boolean; error?: string; state?: string; count?: number; by?: string } | null>(null);
+// ─── Load into game (quiz master test load; the coordinator loads with the PIN) ──
+function LoadIntoGame({ guard, refreshKey, bank }: { guard: <T>(fn: () => Promise<T>) => Promise<T | undefined>; refreshKey: number; bank: OpenSet }) {
+  const [status, setStatus] = useState<{ online?: boolean; error?: string; state?: string; count?: number; by?: string; bank?: OpenSet | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -133,8 +251,8 @@ function LoadIntoGame({ guard, refreshKey }: { guard: <T>(fn: () => Promise<T>) 
   const load = async () => {
     setBusy(true);
     setMessage('');
-    const r = await guard(() => api('/game/load-questions', { method: 'POST' }));
-    if (r) setMessage(`✓ ${r.count} questions decrypted and loaded into the game. The coordinator can start.`);
+    const r = await guard(() => api('/game/load-questions', { method: 'POST', body: { bankId: bank.id } }));
+    if (r) setMessage(`✓ ${r.count} questions from "${bank.name}" loaded into the game.`);
     setBusy(false);
     refresh();
   };
@@ -148,27 +266,27 @@ function LoadIntoGame({ guard, refreshKey }: { guard: <T>(fn: () => Promise<T>) 
         <div style={{ fontWeight: 600, marginTop: 8 }}>
           {offline
             ? 'The event-day game server is not reachable'
-            : status?.count ? `${status.count} questions loaded in the game${status.by ? ` by ${status.by}` : ''}` : 'No questions loaded in the game yet'}
+            : status?.count ? `"${status.bank?.name ?? 'A set'}" is loaded in the game — ${status.count} questions${status.by ? `, by ${status.by}` : ''}` : 'No set loaded in the game yet'}
         </div>
         <p className="dim" style={{ fontSize: '0.82rem', margin: '6px 0 0', lineHeight: 1.5 }}>
           {offline
-            ? 'On event day, start it on the laptop (npm run game + Cloudflare Tunnel); an admin checks the address in Admin → Overview. You can keep editing questions meanwhile.'
+            ? 'On event day, start it on the laptop (npm run game + Cloudflare Tunnel); an admin checks the address in Admin → Overview. You can keep editing meanwhile.'
             : inLobby
-              ? 'Loading decrypts the active questions and sends them straight to the game server. Phones and the projector see each question only when it goes live.'
-              : 'The game is running — questions can be loaded again once it is reset to the lobby.'}
+              ? 'On event day the coordinator loads the set from the host console by entering its PIN. You can also load this set from here to test it.'
+              : 'The game is running — a set can be loaded again once it is reset to the lobby.'}
         </p>
         {message && <p role="status" style={{ margin: '8px 0 0', fontSize: '0.88rem', color: 'var(--good)' }}>{message}</p>}
       </div>
       <button className="btn btn-heat" onClick={load} disabled={busy || !inLobby || offline}>
-        {busy ? 'Loading…' : status?.count ? 'Reload into game' : 'Load into game →'}
+        {busy ? 'Loading…' : `Load "${bank.name}" →`}
       </button>
     </Panel>
   );
 }
 
 // ─── Bank ─────────────────────────────────────────────────────────────────────
-function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
-  vaultUntil: number; onLocked: () => void; onRecoveryCode: (code: string) => void;
+function QuestionBank({ bank, vaultUntil, onLocked, onRenamed, onRecoveryCode }: {
+  bank: OpenSet; vaultUntil: number; onLocked: () => void; onRenamed: (name: string) => void; onRecoveryCode: (code: string) => void;
 }) {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
@@ -218,6 +336,26 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
     guard(async () => onRecoveryCode((await api('/questions/recovery-code', { method: 'POST' })).recoveryCode));
   };
   const left = Math.max(0, Math.round((vaultUntil - now) / 1000));
+  // Set actions: rename, change PIN (tell the coordinator), delete.
+  const rename = () => {
+    const name = prompt('New name for this set', bank.name)?.trim();
+    if (name && name !== bank.name) guard(async () => { await api('/banks/current', { method: 'PATCH', body: { name } }); onRenamed(name); });
+  };
+  const changePin = () => {
+    const currentPin = prompt(`Current PIN of "${bank.name}"`);
+    if (!currentPin) return;
+    const pin = prompt('New PIN (4-12 digits). Tell the coordinator the new PIN.');
+    if (!pin) return;
+    if (prompt('Type the new PIN again') !== pin) { alert("The PINs don't match — nothing changed."); return; }
+    guard(async () => { await api(`/banks/${bank.id}/pin`, { method: 'POST', body: { currentPin, pin } }); alert('PIN changed.'); });
+  };
+  const deleteSet = () => {
+    const confirmName = prompt(`Delete "${bank.name}" with all its levels and ${questions.length} questions? This cannot be undone.
+
+Type the set name to confirm:`);
+    if (confirmName === null) return;
+    guard(async () => { await api('/banks/current', { method: 'DELETE', body: { confirmName } }); onLocked(); });
+  };
 
   const move = (q: Question, direction: 'up' | 'down') =>
     guard(async () => { await api(`/questions/${q.id}/move`, { method: 'POST', body: { direction } }); await load(); });
@@ -235,15 +373,18 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
   return (
     <>
       <Panel style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-        <span className="pill pill-good">🔓 Unlocked</span>
+        <span className="pill pill-good">🔓 {bank.name}</span>
         <span className="dim" style={{ fontSize: '0.88rem' }}>Re-locks in <span className="mono">{Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}</span></span>
         <span style={{ flex: 1 }} />
         <span className="dim" style={{ fontSize: '0.85rem' }}>{questions.filter(q => q.isActive).length} active of {questions.length} questions</span>
+        <button className="btn btn-ghost btn-sm" onClick={rename}>Rename</button>
+        <button className="btn btn-ghost btn-sm" onClick={changePin}>Change PIN</button>
         <button className="btn btn-ghost btn-sm" onClick={newRecoveryCode}>New recovery code</button>
-        <button className="btn btn-ghost btn-sm" onClick={lock}>Lock now</button>
+        <button className="btn btn-danger btn-sm" onClick={deleteSet}>Delete set</button>
+        <button className="btn btn-heat btn-sm" onClick={lock}>Lock · switch set</button>
       </Panel>
 
-      <LoadIntoGame guard={guard} refreshKey={questions.length} />
+      <LoadIntoGame guard={guard} refreshKey={questions.length} bank={bank} />
 
       <nav className="tabs" aria-label="Levels">
         {levels.map((l, i) => (
@@ -316,6 +457,7 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
                   <span className="pill">⏱ {q.timeLimit}s</span>
                   <span className="pill">{q.points} pts</span>
                   <span className="pill">{q.type === 'tf' ? 'True / False' : 'Multiple choice'}</span>
+                  {q.imageId && <span className="pill">🖼 Picture</span>}
                   {!q.isActive && <span className="pill pill-warn">Hidden from game</span>}
                 </div>
               </div>
@@ -343,14 +485,15 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
   // Elimination: only the top N go on to the next level (blank = everyone).
   const [qualifyTop, setQualifyTop] = useState(level.qualifyTop ? String(level.qualifyTop) : '');
   const top = qualifyTop.trim() === '' ? null : Number(qualifyTop);
-  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || top !== level.qualifyTop;
+  const [theme, setTheme] = useState(level.theme ?? '');
+  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || top !== level.qualifyTop || (theme || null) !== level.theme;
   const valid = name.trim().length > 0 && Number(multiplier) > 0 && Number(multiplier) <= 10
     && (top === null || (Number.isInteger(top) && top >= 1));
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     guard(async () => {
-      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), qualifyTop: top } });
+      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), qualifyTop: top, theme: theme || null } });
       onChanged();
     });
   };
@@ -376,6 +519,16 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
           <input id="lvl-top" className="field field-sm" type="number" min={1} step={1} value={qualifyTop} placeholder="Everyone"
             onChange={e => setQualifyTop(e.target.value)} />
         </div>
+        <div className="form-row" style={{ flex: '1 1 220px' }}>
+          <label className="eyebrow" htmlFor="lvl-theme">Look on screen</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, border: '2px solid #111', background: THEMES.find(t => t.id === theme)?.swatch ?? 'repeating-linear-gradient(45deg, #ffc21a 0 6px, #ff4fa8 6px 12px, #a6d91a 12px 18px, #93b8ff 18px 24px)' }} />
+            <select id="lvl-theme" className="field field-sm" value={theme} onChange={e => setTheme(e.target.value)}>
+              <option value="">Automatic (changes every round)</option>
+              {THEMES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+        </div>
         <button className="btn btn-ghost btn-sm" disabled={!dirty || !valid}>Save level</button>
         <button type="button" className="btn btn-danger btn-sm" onClick={remove} disabled={questionCount > 0}
           title={questionCount > 0 ? 'Move or delete its questions first' : undefined}>Delete level</button>
@@ -385,6 +538,65 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
         With "Top N advance", everyone below the top N after this level's last question is eliminated (ties go to the faster player); the last level has no cut.
       </p>
     </Panel>
+  );
+}
+
+// ─── Question picture: upload (resized in the browser), preview, remove ──────
+// Stored encrypted like the question; shown on the projector and phones only when the question is live.
+async function resizeImage(file: File, maxSide = 1600): Promise<{ mime: string; data: string }> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff'; // transparent PNGs get a white background in JPEG
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  return { mime: 'image/jpeg', data: dataUrl.slice(dataUrl.indexOf(',') + 1) };
+}
+
+function QuestionImage({ imageId, onChange }: { imageId: string | null; onChange: (id: string | null) => void }) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!imageId) { setPreview(null); return; }
+    let url: string | null = null;
+    fetchObjectUrl(`/questions/images/${imageId}`).then(u => { url = u; setPreview(u); }).catch(() => setError('Could not load the picture'));
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [imageId]);
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    setBusy(true);
+    try {
+      const image = await resizeImage(file);
+      const saved = await api<{ id: string }>('/questions/images', { method: 'POST', body: image });
+      onChange(saved.id);
+    } catch (err) {
+      setError((err as Error).message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="form-row" style={{ marginTop: 14 }}>
+      <span className="eyebrow">Picture (optional) — for "identify this person / object" questions</span>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        {preview && <img src={preview} alt="Question picture" style={{ width: 180, height: 120, objectFit: 'contain', border: '1px solid var(--line-strong)', borderRadius: 8, background: '#fff' }} />}
+        <label className="btn btn-ghost btn-sm" style={{ cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? 'Uploading…' : imageId ? 'Replace picture' : '+ Add picture'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} disabled={busy} style={{ display: 'none' }} />
+        </label>
+        {imageId && <button type="button" className="btn btn-danger btn-sm" onClick={() => onChange(null)} disabled={busy}>Remove picture</button>}
+      </div>
+      {error && <p className="error-text" style={{ textAlign: 'left' }}>{error}</p>}
+    </div>
   );
 }
 
@@ -444,8 +656,11 @@ function Editor({ draft, levels, onSave, onCancel }: {
 
         <div className="form-row" style={{ marginTop: 14 }}>
           <label className="eyebrow" htmlFor="q-text">Question</label>
-          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={500} required />
+          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={500} required
+            placeholder="e.g. Who is this computer scientist?  /  Identify this component" />
         </div>
+
+        <QuestionImage imageId={d.imageId ?? null} onChange={imageId => setD({ ...d, imageId })} />
 
         <fieldset style={{ border: 0, padding: 0, margin: '16px 0 0' }}>
           <legend className="eyebrow" style={{ marginBottom: 10 }}>Options — tick the correct answer</legend>

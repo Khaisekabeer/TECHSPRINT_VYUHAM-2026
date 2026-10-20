@@ -5,10 +5,14 @@ const ANSWER_GRACE_MS = 1000;
 const MAX_NAME_LENGTH = 20;
 // A correct answer faster than this on a question of 10 s or more is flagged for staff to review.
 const FAST_CORRECT_MS = 1500;
+// Avatar picked on the phone: style (a = cartoon person, b = robot) and a seed, drawn in the browser.
+const AVATAR_RE = /^[ab]:[A-Za-z0-9]{1,16}$/;
+// Level themes; a level without one gets the next in this order by its round.
+const THEME_ORDER = ['blast', 'pop', 'arcade', 'circuit'];
 
 // What other clients may see about a player (never the rejoin token or ticket).
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status };
+  return { id: p.id, name: p.name, avatar: p.avatar, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status };
 }
 
 // Standings: higher score first; on a tie, less total answer time (a skipped question counts as
@@ -51,12 +55,18 @@ class GameEngine {
     const q = this.questions.find(x => (x.level || 1) === level);
     const multiplier = Number(q?.multiplier);
     const top = Number(q?.qualifyTop);
+    const levels = this.levelNumbers();
+    const round = Math.max(1, levels.indexOf(level) + 1);
+    const isLast = levels[levels.length - 1] === level;
+    const qualifyTop = Number.isInteger(top) && top > 0 ? top : null;
     return {
       number: level,
-      round: Math.max(1, this.levelNumbers().indexOf(level) + 1),
+      round,
       name: q?.levelName || `Level ${level}`,
       multiplier: multiplier > 0 ? multiplier : 1,
-      qualifyTop: Number.isInteger(top) && top > 0 ? top : null,
+      qualifyTop,
+      cutAfter: isLast ? null : qualifyTop, // the cut that applies at the end of this level
+      theme: q?.theme || THEME_ORDER[(round - 1) % THEME_ORDER.length],
     };
   }
 
@@ -73,7 +83,7 @@ class GameEngine {
   }
 
   // ticket: { ticketId, fullName } when check-in is required, otherwise null.
-  addPlayer(socketId, rawName, rawTeam, ticket = null) {
+  addPlayer(socketId, rawName, rawTeam, ticket = null, rawAvatar = null) {
     if (this.sockets[socketId]) return { error: 'Already joined' };
     const name = typeof rawName === 'string' ? rawName.trim() : '';
     if (!name || name.length > MAX_NAME_LENGTH) return { error: `Name must be 1-${MAX_NAME_LENGTH} characters` };
@@ -92,6 +102,7 @@ class GameEngine {
       fullName: ticket?.fullName ?? null,
       name,
       team,
+      avatar: typeof rawAvatar === 'string' && AVATAR_RE.test(rawAvatar) ? rawAvatar : `b:${randomBytes(4).toString('hex')}`,
       score: 0,
       streak: 0,
       totalResponseTime: 0,
@@ -413,11 +424,29 @@ class GameEngine {
       correctAnswer: q.correctAnswer,
       stats,
       speedStar,
-      leaderboard: this.activePlayers().sort(byStanding).slice(0, 10).map(publicPlayer),
+      // Everyone still in, in order (the projector adapts its layout to the count).
+      leaderboard: this.activePlayers().sort(byStanding).map(publicPlayer),
+      hasImage: !!q.image,
+      questionIndex: this.currentQuestionIndex - 1,
       isLastQuestion: !next || this.activePlayers().length === 0,
       elimination,
     };
     return this.lastResult;
+  }
+
+  // A player's place among those still in (for their phone at each reveal).
+  standingOf(player) {
+    if (player.status !== 'active') return null;
+    const ranked = this.activePlayers().sort(byStanding);
+    return { rank: ranked.indexOf(player) + 1, of: ranked.length };
+  }
+
+  // A question's picture, only once that question is live (or already revealed).
+  liveImage(index) {
+    const q = this.questions[index];
+    if (!q?.image) return null;
+    const shown = index < this.currentQuestionIndex || (this.state === 'question' && index === this.currentQuestionIndex);
+    return shown ? q.image : null;
   }
 
   getState() {
@@ -441,7 +470,7 @@ class GameEngine {
         type: q.type,
         options: q.options,
         timeLimit: q.timeLimit,
-        imageUrl: q.imageUrl,
+        hasImage: !!q.image,
       } : null,
       finalLeaderboard: this.state === 'podium' ? this.getPlayersList() : null,
     };

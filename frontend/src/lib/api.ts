@@ -58,7 +58,8 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     throw new ApiError('Cannot reach the server — check the connection', 0, null);
   }
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && s && path !== '/auth/login' && path !== '/auth/vault') session.clear();
+  // 401 = the sign-in expired or was revoked (a wrong set PIN is 403 and keeps you signed in).
+  if (res.status === 401 && s && path !== '/auth/login') session.clear();
   if (!res.ok) throw new ApiError(data.error || `Request failed (${res.status})`, res.status, data);
   return data as T;
 }
@@ -77,6 +78,14 @@ export async function downloadFile(path: string, filename: string) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+// Fetch an authenticated file (e.g. a question picture) as an object URL for <img>.
+export async function fetchObjectUrl(path: string): Promise<string> {
+  const s = session.get();
+  const res = await fetch(`${API_BASE}/api${path}`, { headers: s ? { Authorization: `Bearer ${s.token}` } : {} });
+  if (!res.ok) throw new ApiError('Could not load the file', res.status, {});
+  return URL.createObjectURL(await res.blob());
 }
 
 // Current staff session; re-renders on sign-in/out (including from other tabs).
