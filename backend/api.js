@@ -17,6 +17,7 @@ const VOL = 'volunteer';
 const ROLES = [ADMIN, QM, COORD, VOL];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const THEMES = ['blast', 'pop', 'arcade', 'circuit', 'classic'];
+const CUT_RULES = ['top', 'percent', 'min_score', 'bottom', 'min_correct'];
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
@@ -541,15 +542,23 @@ module.exports = function createApi(hooks) {
   function validateLevel(body) {
     const name = str(body?.name, 40);
     const multiplier = Math.round(Number(body?.multiplier) * 100) / 100;
-    const top = body?.qualifyTop;
-    const qualifyTop = top === null || top === undefined || top === '' ? null : Number(top);
     check(name, 'Level name is required');
     check(multiplier > 0 && multiplier <= 10, 'Multiplier must be between 0.1 and 10');
-    check(qualifyTop === null || (Number.isInteger(qualifyTop) && qualifyTop >= 1 && qualifyTop <= 10000),
-      'Players who advance must be a whole number (or empty for everyone)');
     const theme = body?.theme == null || body.theme === '' ? null : String(body.theme);
     check(theme === null || THEMES.includes(theme), 'Unknown theme');
-    return { name, multiplier, qualify_top: qualifyTop, theme };
+    // Elimination at the end of the level (see gameEngine.computeCut); none = everyone advances.
+    const cut = body?.cut;
+    const rule = cut?.rule || null;
+    check(rule === null || CUT_RULES.includes(rule), 'Unknown cut rule');
+    const value = rule ? Number(cut.value) : null;
+    if (rule) {
+      const whole = ['top', 'bottom', 'min_correct'].includes(rule);
+      check(Number.isFinite(value) && value >= (rule === 'min_score' ? 0 : 1) && (!whole || Number.isInteger(value)),
+        rule === 'percent' ? 'Percent must be between 1 and 100' : rule === 'min_score' ? 'Minimum score must be 0 or more' : 'Enter a whole number of 1 or more');
+      check(rule !== 'percent' || value <= 100, 'Percent must be between 1 and 100');
+    }
+    const ties = cut?.ties === 'include' ? 'include' : 'speed';
+    return { name, multiplier, theme, cut_rule: rule, cut_value: value, cut_ties: ties };
   }
 
   api.get('/levels', ...qm, route(async (req, res) => {

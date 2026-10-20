@@ -287,6 +287,11 @@
 /* Below the cut: at risk of elimination when this level ends. */
 .st-row.danger { background: #ffe1e1; border-style: dashed; opacity: 0.85; }
 .st-row.offline { opacity: 0.55; }
+/* Rank change since the last question. */
+.st-delta { flex-shrink: 0; font-family: var(--font-comic); font-size: 0.8em; padding: 0 0.35em; border-radius: 6px; animation: pop 0.5s var(--ease-out) backwards; }
+.st-delta.up { color: #15803d; background: #dcfce7; }
+.st-delta.down { color: #b91c1c; background: #fee2e2; }
+.st-stack .st-delta { margin-left: 0.4em; font-size: 0.85em; }
 
 @media (prefers-reduced-motion: reduce) {
   .comic-bg::before { animation: none; }

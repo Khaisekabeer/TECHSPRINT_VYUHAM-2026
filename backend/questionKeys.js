@@ -141,7 +141,7 @@ async function afterOpen(bankId, dek) {
 }
 
 // Decrypted, active questions of one set in play order (level number, then position), each
-// carrying its level's name, multiplier, cut and theme, plus its picture — only ever held in the
+// carrying its level's name, multiplier, cut rule and theme, plus its picture — only ever held in the
 // game server's memory.
 async function loadGameQuestions(bankId, dek) {
   const [rows, levels] = await Promise.all([store.listQuestionRows(bankId), store.listLevels(bankId)]);
@@ -152,7 +152,7 @@ async function loadGameQuestions(bankId, dek) {
       ...decryptRow(r, dek),
       levelName: level?.name ?? `Level ${r.level}`,
       multiplier: level?.multiplier ?? 1,
-      qualifyTop: level?.qualifyTop ?? null,
+      cut: level?.cut ?? null,
       theme: level?.theme ?? null,
     };
   });

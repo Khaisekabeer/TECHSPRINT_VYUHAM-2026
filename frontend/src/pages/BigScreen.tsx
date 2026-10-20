@@ -39,6 +39,8 @@ export default function BigScreen() {
     socket.on('answer_count', setAnswerCount);
     socket.on('server_info', setServerInfo);
     socket.on('question_result', setQuestionResult);
+    // The coordinator confirmed the end-of-level cut: survivors only, then they move up.
+    socket.on('cut_result', (data: any) => setQuestionResult((prev: any) => ({ ...prev, leaderboard: data.leaderboard, elimination: data.elimination, pendingCut: null, atRisk: [] })));
     socket.emit('join_role', 'bigscreen');
 
     return () => {
@@ -47,6 +49,7 @@ export default function BigScreen() {
       socket.off('answer_count');
       socket.off('server_info');
       socket.off('question_result');
+      socket.off('cut_result');
     };
   }, [socket, isConnected]);
 
@@ -103,7 +106,7 @@ export default function BigScreen() {
         {phase === 'question' && (
           <Question gameState={gameState} timeLeft={timeLeft} maxTime={maxTime} answerCount={answerCount} imageUrl={imageUrl} />
         )}
-        {phase === 'leaderboard' && <Reveal result={questionResult} players={active} gameState={gameState} imageUrl={imageUrl} />}
+        {phase === 'leaderboard' && <Reveal result={questionResult} players={active} imageUrl={imageUrl} />}
         {phase === 'podium' && <Podium board={(gameState.finalLeaderboard || players).filter((p: any) => p.status !== 'disqualified')} />}
       </div>
     </div>
@@ -180,8 +183,8 @@ function Intro({ gameState }: { gameState: any }) {
       </Burst>
       <Rise d={450} style={{ display: 'flex', gap: '1.4vw', flexWrap: 'wrap', justifyContent: 'center' }}>
         <span className="comic-badge" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>× {config.multiplier} points</span>
-        {config.cutAfter && (
-          <span className="comic-badge light" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>✂ Top {config.cutAfter} go through</span>
+        {config.cut && (
+          <span className="comic-badge light" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>✂ {config.cut.label}</span>
         )}
         <span className="comic-badge light" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>{gameState.playersLeft} players</span>
       </Rise>
@@ -257,14 +260,15 @@ function Question({ gameState, timeLeft, maxTime, answerCount, imageUrl }: {
 }
 
 // ─── Reveal: the answer, how people voted, and everyone's standing ────────────
-function Reveal({ result, players, gameState, imageUrl }: { result: any; players: any[]; gameState: any; imageUrl: (i: number) => string }) {
+function Reveal({ result, players, imageUrl }: { result: any; players: any[]; imageUrl: (i: number) => string }) {
   const stats: [string, number][] = result ? Object.entries(result.stats || {}) as [string, number][] : [];
   const maxCount = Math.max(1, ...stats.map(([, n]) => n));
   const totalAnswers = stats.reduce((sum, [, n]) => sum + n, 0);
   const board: any[] = result?.leaderboard || players;
   const cut = result?.elimination;
-  // Before this level's cut, show who is at risk; once it has happened, only survivors remain.
-  const atRiskAfter = cut ? null : gameState?.levelConfig?.cutAfter ?? null;
+  // Before this level's cut, show who is below the line; once it is confirmed, only survivors remain.
+  const atRisk: string[] = cut ? [] : result?.atRisk ?? [];
+  const pending = result?.pendingCut;
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '0 2.4vw 2.6vh', gap: '2vh' }}>
@@ -300,21 +304,27 @@ function Reveal({ result, players, gameState, imageUrl }: { result: any; players
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1vh', flexShrink: 0 }}>
           <span className="comic-badge light">{totalAnswers} answered</span>
           {result?.speedStar && <span className="comic-badge">⚡ {result.speedStar}</span>}
-          {atRiskAfter && <span className="comic-badge light">✂ Top {atRiskAfter} go through</span>}
+          {!cut && result?.cutLabel && <span className="comic-badge light">✂ {result.cutLabel}</span>}
         </div>
       </div>
 
+      {pending && !cut && (
+        <Rise className="comic-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2vw', padding: '1.2vh 2vw', background: '#111', color: '#fff' }}>
+          <span className="comic-title" style={{ fontSize: 'clamp(1.6rem, 2.8vw, 3.2rem)', color: '#fff' }}>The cut is coming…</span>
+          <span className="comic-text" style={{ fontSize: 'clamp(1.2rem, 2vw, 2.2rem)' }}>{pending.label} · {pending.out} below the line</span>
+        </Rise>
+      )}
       {cut && (
         <Rise className="comic-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2vw', padding: '1.2vh 2vw', background: 'var(--t-accent)', color: '#fff' }}>
           <span className="comic-title" style={{ fontSize: 'clamp(1.6rem, 2.8vw, 3.2rem)', color: '#fff' }}>End of {cut.levelName}!</span>
           <span className="comic-text" style={{ fontSize: 'clamp(1.2rem, 2vw, 2.2rem)' }}>
-            Top {cut.qualifyTop} advance{cut.eliminated.length > 0 ? ` · ${cut.eliminated.length} eliminated` : ''}
+            {cut.eliminated.length > 0 ? `${cut.advanced} go through · ${cut.eliminated.length} eliminated` : 'Everyone goes through!'}
           </span>
         </Rise>
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
-        <Standings players={board} cutAfter={atRiskAfter} />
+        <Standings players={board} atRisk={atRisk} />
       </div>
     </div>
   );

@@ -10,7 +10,17 @@ interface Question {
 type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
 // Levels (rounds) are set up by the quiz master and played in this order.
-interface Level { number: number; name: string; multiplier: number; qualifyTop: number | null; theme: string | null }
+interface Cut { rule: 'top' | 'percent' | 'min_score' | 'bottom' | 'min_correct'; value: number; ties: 'speed' | 'include' }
+interface Level { number: number; name: string; multiplier: number; cut: Cut | null; theme: string | null }
+
+// Who goes on to the next level when this one ends. The coordinator confirms every cut.
+const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
+  { id: 'top', label: 'Top N go through', unit: 'players' },
+  { id: 'percent', label: 'Top % go through', unit: '%' },
+  { id: 'min_score', label: 'Minimum score to go through', unit: 'points' },
+  { id: 'bottom', label: 'Bottom N are out', unit: 'players' },
+  { id: 'min_correct', label: 'Minimum correct answers in this level', unit: 'correct' },
+];
 
 // Looks for the projector and phones during a level (see comic.css).
 const THEMES: { id: string; label: string; swatch: string }[] = [
@@ -482,18 +492,23 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
 }) {
   const [name, setName] = useState(level.name);
   const [multiplier, setMultiplier] = useState(String(level.multiplier));
-  // Elimination: only the top N go on to the next level (blank = everyone).
-  const [qualifyTop, setQualifyTop] = useState(level.qualifyTop ? String(level.qualifyTop) : '');
-  const top = qualifyTop.trim() === '' ? null : Number(qualifyTop);
+  // Elimination when the level ends ('' = everyone goes through).
+  const [rule, setRule] = useState<string>(level.cut?.rule ?? '');
+  const [value, setValue] = useState(level.cut ? String(level.cut.value) : '');
+  const [ties, setTies] = useState<Cut['ties']>(level.cut?.ties ?? 'speed');
   const [theme, setTheme] = useState(level.theme ?? '');
-  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || top !== level.qualifyTop || (theme || null) !== level.theme;
-  const valid = name.trim().length > 0 && Number(multiplier) > 0 && Number(multiplier) <= 10
-    && (top === null || (Number.isInteger(top) && top >= 1));
+  const cut = rule ? { rule, value: Number(value), ties } : null;
+  const cutChanged = JSON.stringify(cut) !== JSON.stringify(level.cut ? { rule: level.cut.rule, value: level.cut.value, ties: level.cut.ties } : null);
+  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || cutChanged || (theme || null) !== level.theme;
+  const valueOk = !rule || (value.trim() !== '' && Number(value) >= (rule === 'min_score' ? 0 : 1)
+    && (rule !== 'percent' || Number(value) <= 100) && (['min_score', 'percent'].includes(rule) || Number.isInteger(Number(value))));
+  const valid = name.trim().length > 0 && Number(multiplier) > 0 && Number(multiplier) <= 10 && valueOk;
+  const unit = CUT_RULES.find(r => r.id === rule)?.unit;
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     guard(async () => {
-      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), qualifyTop: top, theme: theme || null } });
+      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), cut, theme: theme || null } });
       onChanged();
     });
   };
@@ -514,11 +529,29 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
           <input id="lvl-mult" className="field field-sm" type="number" min={0.1} max={10} step={0.1} value={multiplier}
             onChange={e => setMultiplier(e.target.value)} required />
         </div>
-        <div className="form-row" style={{ flex: '0 1 180px' }}>
-          <label className="eyebrow" htmlFor="lvl-top">Top N advance</label>
-          <input id="lvl-top" className="field field-sm" type="number" min={1} step={1} value={qualifyTop} placeholder="Everyone"
-            onChange={e => setQualifyTop(e.target.value)} />
+        <div className="form-row" style={{ flex: '1 1 240px' }}>
+          <label className="eyebrow" htmlFor="lvl-cut">After this level</label>
+          <select id="lvl-cut" className="field field-sm" value={rule} onChange={e => { setRule(e.target.value); if (!e.target.value) setValue(''); }}>
+            <option value="">Everyone goes through</option>
+            {CUT_RULES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+          </select>
         </div>
+        {rule && (
+          <>
+            <div className="form-row" style={{ flex: '0 1 130px' }}>
+              <label className="eyebrow" htmlFor="lvl-cut-value">{unit}</label>
+              <input id="lvl-cut-value" className="field field-sm" type="number" min={rule === 'min_score' ? 0 : 1} max={rule === 'percent' ? 100 : undefined}
+                step={rule === 'min_score' || rule === 'percent' ? 'any' : 1} value={value} onChange={e => setValue(e.target.value)} required />
+            </div>
+            <div className="form-row" style={{ flex: '1 1 210px' }}>
+              <label className="eyebrow" htmlFor="lvl-cut-ties">Tie at the line</label>
+              <select id="lvl-cut-ties" className="field field-sm" value={ties} onChange={e => setTies(e.target.value as Cut['ties'])}>
+                <option value="speed">Faster player goes through</option>
+                <option value="include">Everyone tied goes through</option>
+              </select>
+            </div>
+          </>
+        )}
         <div className="form-row" style={{ flex: '1 1 220px' }}>
           <label className="eyebrow" htmlFor="lvl-theme">Look on screen</label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -535,7 +568,7 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
       </form>
       <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>
         Shown on the projector and phones when this round starts. Levels are played in the order of the tabs; empty levels are skipped.
-        With "Top N advance", everyone below the top N after this level's last question is eliminated (ties go to the faster player); the last level has no cut.
+        "After this level" decides who goes on when its last question ends; the coordinator reviews the list and confirms it in the host console. The last level has no cut.
       </p>
     </Panel>
   );

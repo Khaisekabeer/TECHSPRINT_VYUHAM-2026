@@ -42,7 +42,8 @@ export default function ParticipantView() {
   const [gameState, setGameState] = useState<any>(null);
   const [playerInfo, setPlayerInfo] = useState<any>(null);
   const [answerResult, setAnswerResult] = useState<any>(null);
-  const [standing, setStanding] = useState<{ rank: number; of: number } | null>(null);
+  // Our place among those still in, and whether we're below the level's cut line right now.
+  const [standing, setStanding] = useState<{ rank: number; of: number; atRisk?: boolean; cutLabel?: string | null } | null>(null);
   const [lastCut, setLastCut] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -101,7 +102,12 @@ export default function ParticipantView() {
     // Whether a cut happened at this reveal ("You made the cut!").
     socket.on('question_result', (r: any) => setLastCut(r?.elimination ?? null));
     // Status changes outside a reveal (e.g. disqualified by the host).
-    socket.on('player_update', (res: any) => setPlayerInfo(res.player));
+    socket.on('player_update', (res: any) => {
+      setPlayerInfo(res.player);
+      if (res.standing !== undefined) setStanding(res.standing);
+    });
+    // The coordinator confirmed the end-of-level cut ("You made the cut!" if we're still in).
+    socket.on('cut_result', (data: any) => setLastCut(data.elimination));
     return () => {
       socket.off('game_state');
       socket.off('kicked');
@@ -109,6 +115,7 @@ export default function ParticipantView() {
       socket.off('my_result');
       socket.off('question_result');
       socket.off('player_update');
+      socket.off('cut_result');
     };
   }, [socket]);
 
@@ -323,7 +330,7 @@ export default function ParticipantView() {
           </Burst>
           <Rise d={350} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
             <span className="comic-badge">× {config.multiplier} points</span>
-            {config.cutAfter && <span className="comic-badge light">✂ Top {config.cutAfter} go through</span>}
+            {config.cut && <span className="comic-badge light">✂ {config.cut.label}</span>}
           </Rise>
         </main>
       </Screen>
@@ -416,8 +423,8 @@ export default function ParticipantView() {
     const isCorrect = answerResult?.isCorrect;
     const notAnswered = !answerResult;
     const headline = notAnswered ? 'Too slow!' : isCorrect ? 'Correct!' : 'Wrong!';
-    const cutAfter = lastCut ? null : gameState.levelConfig?.cutAfter;
-    const safe = standing && cutAfter ? standing.rank <= cutAfter : null;
+    const cutLabel = lastCut ? null : standing?.cutLabel;
+    const safe = standing && cutLabel ? !standing.atRisk : null;
     return (
       <Screen theme={levelTheme}>
         <main style={center}>
@@ -442,7 +449,7 @@ export default function ParticipantView() {
           )}
 
           {lastCut && (
-            <Rise d={380}><span className="comic-badge" style={{ fontSize: '1.1rem' }}>🎉 You made the cut! Top {lastCut.qualifyTop}</span></Rise>
+            <Rise d={380}><span className="comic-badge" style={{ fontSize: '1.1rem' }}>🎉 You made the cut! {lastCut.label}</span></Rise>
           )}
 
           <Rise d={480} className="comic-panel" style={{ width: '100%', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -461,7 +468,7 @@ export default function ParticipantView() {
           {safe !== null && (
             <Rise d={560}>
               <span className="comic-badge light" style={{ background: safe ? '#dcfce7' : '#fee2e2' }}>
-                {safe ? `✓ In the top ${cutAfter} — keep it up!` : `⚠ Top ${cutAfter} go through — climb ${standing!.rank - cutAfter!} places!`}
+                {safe ? `✓ Above the line — ${cutLabel}` : `⚠ Below the line — ${cutLabel}`}
               </span>
             </Rise>
           )}
