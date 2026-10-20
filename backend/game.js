@@ -131,7 +131,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     io.emit('question_result', result);
     // Each player learns their own result (and whether they made the cut) only now, at the reveal.
     for (const p of Object.values(gameEngine.players)) {
-      sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p) });
+      sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p), standing: gameEngine.standingOf(p) });
     }
     broadcastState();
     broadcastPlayers();
@@ -315,7 +315,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
 
       if (!settings.requireCheckin) {
         if (gameEngine.state !== 'lobby') return callback({ error: 'Game already started' });
-        const result = gameEngine.addPlayer(socket.id, data?.name, data?.team);
+        const result = gameEngine.addPlayer(socket.id, data?.name, data?.team, null, data?.avatar);
         if (result.error) return callback(result);
         socket.join('players');
         logEvent('join', { player: gameEngine.playerBySocket(socket.id), socket, detail: { device: device(socket), checkin: false } });
@@ -377,7 +377,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       if (!reg.checkedInAt) return fail('Not checked in yet — show your pass at the entry desk first', ticketId);
 
       const displayName = (typeof data?.name === 'string' && data.name.trim()) || reg.name.trim().split(/\s+/)[0];
-      const result = gameEngine.addPlayer(socket.id, displayName.slice(0, 20), '', { ticketId, fullName: reg.name });
+      const result = gameEngine.addPlayer(socket.id, displayName.slice(0, 20), '', { ticketId, fullName: reg.name }, data?.avatar);
       if (result.error) return fail(result.error, ticketId);
       socket.join('players');
       logEvent('join', { player: gameEngine.playerBySocket(socket.id), socket, detail: { device: device(socket) } });
@@ -440,6 +440,15 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     });
   });
 
+  // GET /live-image/:index — a question's picture, served only once that question is live.
+  // ?g= (game id) is only there so browsers don't reuse an image from a previous game.
+  function liveImage(req, res) {
+    const image = gameEngine.liveImage(Number(req.params.index));
+    if (!image) return res.status(404).end();
+    res.set({ 'Content-Type': image.mime, 'Cache-Control': 'private, max-age=600' });
+    res.send(Buffer.from(image.data, 'base64'));
+  }
+
   // Let queued database writes finish before the process exits.
   async function shutdown() {
     clearTimeout(questionTimer);
@@ -448,7 +457,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     await Promise.race([db.flush(), new Promise(r => setTimeout(r, 10000))]);
   }
 
-  return { loadQuestions, status, applySettings, refreshSettings, publicConfig, shutdown, settings, engine: gameEngine };
+  return { loadQuestions, status, applySettings, refreshSettings, publicConfig, shutdown, liveImage, settings, engine: gameEngine };
 }
 
 module.exports = createGame;

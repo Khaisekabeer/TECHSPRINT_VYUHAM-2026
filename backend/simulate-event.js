@@ -78,14 +78,25 @@ const bots = [];
 const stats = { joined: 0, answered: 0, skipped: 0, drops: 0, errors: new Map() };
 const countError = msg => stats.errors.set(msg, (stats.errors.get(msg) || 0) + 1);
 
+// Display names must be unique in a game: first name, then first name + initial, else + number.
+const displayNames = [];
+function displayNameFor(i) {
+  while (displayNames.length <= i) {
+    const j = displayNames.length;
+    const first = FIRST[j % FIRST.length];
+    let name = j < FIRST.length ? first : `${first} ${LAST[(j * 7) % LAST.length][0]}`;
+    if (displayNames.some(n => n.toLowerCase() === name.toLowerCase())) name = `${first} ${j + 1}`;
+    displayNames.push(name);
+  }
+  return displayNames[i];
+}
+
 class Bot {
   constructor(i) {
     this.i = i;
     this.ticketId = `SIM${String(i + 1).padStart(4, '0')}`;
     this.name = `${FIRST[i % FIRST.length]} ${LAST[(i * 7) % LAST.length]}`;
-    // Display names must be unique in a game: first name, then first name + initial (+ number).
-    const [first, last] = this.name.split(' ');
-    this.displayName = i < FIRST.length ? first : `${first} ${last[0]}${i >= FIRST.length * 3 ? i : ''}`;
+    this.displayName = displayNameFor(i);
     this.p = persona();
     this.token = null;
     this.score = 0;
@@ -110,7 +121,9 @@ class Bot {
 
   async join() {
     if (this.stopped) return;
-    const payload = requireCheckin ? { ticketId: this.ticketId, name: this.displayName } : { name: this.displayName };
+    // Half pick a cartoon character, half a robot (as players do on the join screen).
+    const avatar = `${this.i % 2 ? 'b' : 'a'}:${this.ticketId}`;
+    const payload = requireCheckin ? { ticketId: this.ticketId, name: this.displayName, avatar } : { name: this.displayName, avatar };
     try {
       const res = await ask(this.socket, 'join_game', payload);
       if (res.success) {

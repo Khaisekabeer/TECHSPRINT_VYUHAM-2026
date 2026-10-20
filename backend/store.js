@@ -300,17 +300,17 @@ function setLevelTimer(level, seconds) {
 }
 
 // ─── Levels (rounds; played in number order) ─────────────────────────────────
-const LEVEL_COLUMNS = 'number, name, multiplier, qualify_top';
-const toLevel = row => ({ number: row.number, name: row.name, multiplier: Number(row.multiplier), qualifyTop: row.qualify_top ?? null });
+const LEVEL_COLUMNS = 'number, name, multiplier, qualify_top, theme';
+const toLevel = row => ({ number: row.number, name: row.name, multiplier: Number(row.multiplier), qualifyTop: row.qualify_top ?? null, theme: row.theme ?? null });
 
 async function listLevels() {
   return (await run(supabase.from('levels').select(LEVEL_COLUMNS).order('number'), 'Loading levels')).map(toLevel);
 }
 
-async function createLevel({ name, multiplier, qualify_top = null }) {
+async function createLevel({ name, multiplier, qualify_top = null, theme = null }) {
   const last = await run(supabase.from('levels').select('number').order('number', { ascending: false }).limit(1), 'Finding level number');
   const rows = await run(
-    supabase.from('levels').insert({ number: (last[0]?.number ?? 0) + 1, name, multiplier, qualify_top }).select(LEVEL_COLUMNS),
+    supabase.from('levels').insert({ number: (last[0]?.number ?? 0) + 1, name, multiplier, qualify_top, theme }).select(LEVEL_COLUMNS),
     'Adding level',
   );
   return toLevel(rows[0]);
@@ -328,6 +328,26 @@ async function countQuestionsInLevel(number) {
 
 function deleteLevel(number) {
   return run(supabase.from('levels').delete().eq('number', number), 'Deleting level');
+}
+
+// ─── Question images (encrypted bytes) ────────────────────────────────────────
+async function insertImage(row) {
+  const rows = await run(supabase.from('question_images').insert(row).select('id, mime, bytes'), 'Saving image');
+  return rows[0];
+}
+
+async function getImages(ids) {
+  if (!ids.length) return [];
+  return run(supabase.from('question_images').select('id, mime, payload').in('id', ids), 'Loading images');
+}
+
+function listImageMeta() {
+  return run(supabase.from('question_images').select('id, created_at'), 'Listing images');
+}
+
+function deleteImages(ids) {
+  if (!ids.length) return Promise.resolve([]);
+  return run(supabase.from('question_images').delete().in('id', ids), 'Deleting images');
 }
 
 // ─── Question vault keys ──────────────────────────────────────────────────────
@@ -450,6 +470,10 @@ module.exports = {
   deleteQuestion,
   moveQuestion,
   setLevelTimer,
+  insertImage,
+  getImages,
+  listImageMeta,
+  deleteImages,
   listLevels,
   createLevel,
   updateLevel,

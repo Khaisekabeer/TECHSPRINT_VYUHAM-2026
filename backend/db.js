@@ -50,6 +50,7 @@ function toParticipantRow(gameId, p) {
     final_rank: p.finalRank ?? null,
     ticket_id: p.ticketId ?? null,
     status: p.status || 'active',
+    avatar: p.avatar ?? null,
     eliminated_level: p.exit?.level ?? null,
     updated_at: new Date().toISOString(),
   };

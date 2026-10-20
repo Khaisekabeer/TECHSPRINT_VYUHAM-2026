@@ -88,6 +88,10 @@ async function afterUnlock(dek, staffId) {
     sealed++;
   }
   if (sealed) console.log(`Encrypted ${sealed} plaintext question(s)`);
+  // Images uploaded but never saved with a question (editor closed) are removed after an hour.
+  const used = new Set((await store.listQuestionRows()).map(r => decryptRow(r, dek).imageId).filter(Boolean));
+  const stale = (await store.listImageMeta()).filter(i => !used.has(i.id) && Date.now() - new Date(i.created_at).getTime() > 3600e3);
+  if (stale.length) await store.deleteImages(stale.map(i => i.id));
 }
 
 // New PIN → new key pair; the old grant can't be opened any more, so it is removed and
@@ -126,15 +130,20 @@ async function rotateRecoveryCode(dek) {
 async function loadGameQuestions(dek) {
   const [rows, levels] = await Promise.all([store.listQuestionRows(), store.listLevels()]);
   const byNumber = new Map(levels.map(l => [l.number, l]));
-  return rows.filter(r => r.is_active).map(r => {
+  const questions = rows.filter(r => r.is_active).map(r => {
     const level = byNumber.get(r.level);
     return {
       ...decryptRow(r, dek),
       levelName: level?.name ?? `Level ${r.level}`,
       multiplier: level?.multiplier ?? 1,
       qualifyTop: level?.qualifyTop ?? null,
+      theme: level?.theme ?? null,
     };
   });
+  // Images travel with the questions (decrypted, base64) and stay in the game server's memory.
+  const images = new Map((await store.getImages(questions.map(q => q.imageId).filter(Boolean)))
+    .map(img => [img.id, { mime: img.mime, data: vault.decryptImage(dek, img.payload).toString('base64') }]));
+  return questions.map(({ imageId, ...q }) => ({ ...q, image: imageId ? images.get(imageId) ?? null : null }));
 }
 
 module.exports = { VaultError, unlock, recover, afterUnlock, keysForNewPin, decryptRow, loadGameQuestions, rotateRecoveryCode };

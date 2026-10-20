@@ -1,17 +1,27 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { api, ApiError } from '../../lib/api';
+import { api, ApiError, fetchObjectUrl } from '../../lib/api';
 import { OPTION_LABELS, Panel } from '../../components/ui';
 
 interface Question {
   id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
   options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
+  imageId?: string | null; // picture for "identify this person / object" questions (stored encrypted)
 }
 type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
 // Levels (rounds) are set up by the quiz master and played in this order.
-interface Level { number: number; name: string; multiplier: number; qualifyTop: number | null }
+interface Level { number: number; name: string; multiplier: number; qualifyTop: number | null; theme: string | null }
+
+// Looks for the projector and phones during a level (see comic.css).
+const THEMES: { id: string; label: string; swatch: string }[] = [
+  { id: 'blast', label: 'Blast — yellow comic burst', swatch: '#ffc21a' },
+  { id: 'pop', label: 'Pop — yellow & pink pop art', swatch: '#ff4fa8' },
+  { id: 'arcade', label: 'Arcade — lime game burst', swatch: '#a6d91a' },
+  { id: 'circuit', label: 'Circuit — blue tech windows', swatch: '#93b8ff' },
+  { id: 'classic', label: 'Classic — plain white', swatch: '#ffffff' },
+];
 const blank = (level: number): Draft => ({
-  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true,
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null,
 });
 
 export default function Questions() {
@@ -316,6 +326,7 @@ function QuestionBank({ vaultUntil, onLocked, onRecoveryCode }: {
                   <span className="pill">⏱ {q.timeLimit}s</span>
                   <span className="pill">{q.points} pts</span>
                   <span className="pill">{q.type === 'tf' ? 'True / False' : 'Multiple choice'}</span>
+                  {q.imageId && <span className="pill">🖼 Picture</span>}
                   {!q.isActive && <span className="pill pill-warn">Hidden from game</span>}
                 </div>
               </div>
@@ -343,14 +354,15 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
   // Elimination: only the top N go on to the next level (blank = everyone).
   const [qualifyTop, setQualifyTop] = useState(level.qualifyTop ? String(level.qualifyTop) : '');
   const top = qualifyTop.trim() === '' ? null : Number(qualifyTop);
-  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || top !== level.qualifyTop;
+  const [theme, setTheme] = useState(level.theme ?? '');
+  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || top !== level.qualifyTop || (theme || null) !== level.theme;
   const valid = name.trim().length > 0 && Number(multiplier) > 0 && Number(multiplier) <= 10
     && (top === null || (Number.isInteger(top) && top >= 1));
 
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     guard(async () => {
-      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), qualifyTop: top } });
+      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), qualifyTop: top, theme: theme || null } });
       onChanged();
     });
   };
@@ -376,6 +388,16 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
           <input id="lvl-top" className="field field-sm" type="number" min={1} step={1} value={qualifyTop} placeholder="Everyone"
             onChange={e => setQualifyTop(e.target.value)} />
         </div>
+        <div className="form-row" style={{ flex: '1 1 220px' }}>
+          <label className="eyebrow" htmlFor="lvl-theme">Look on screen</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, border: '2px solid #111', background: THEMES.find(t => t.id === theme)?.swatch ?? 'repeating-linear-gradient(45deg, #ffc21a 0 6px, #ff4fa8 6px 12px, #a6d91a 12px 18px, #93b8ff 18px 24px)' }} />
+            <select id="lvl-theme" className="field field-sm" value={theme} onChange={e => setTheme(e.target.value)}>
+              <option value="">Automatic (changes every round)</option>
+              {THEMES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
+        </div>
         <button className="btn btn-ghost btn-sm" disabled={!dirty || !valid}>Save level</button>
         <button type="button" className="btn btn-danger btn-sm" onClick={remove} disabled={questionCount > 0}
           title={questionCount > 0 ? 'Move or delete its questions first' : undefined}>Delete level</button>
@@ -385,6 +407,65 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
         With "Top N advance", everyone below the top N after this level's last question is eliminated (ties go to the faster player); the last level has no cut.
       </p>
     </Panel>
+  );
+}
+
+// ─── Question picture: upload (resized in the browser), preview, remove ──────
+// Stored encrypted like the question; shown on the projector and phones only when the question is live.
+async function resizeImage(file: File, maxSide = 1600): Promise<{ mime: string; data: string }> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = Object.assign(document.createElement('canvas'), { width: Math.round(bitmap.width * scale), height: Math.round(bitmap.height * scale) });
+  const ctx = canvas.getContext('2d')!;
+  ctx.fillStyle = '#ffffff'; // transparent PNGs get a white background in JPEG
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+  return { mime: 'image/jpeg', data: dataUrl.slice(dataUrl.indexOf(',') + 1) };
+}
+
+function QuestionImage({ imageId, onChange }: { imageId: string | null; onChange: (id: string | null) => void }) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!imageId) { setPreview(null); return; }
+    let url: string | null = null;
+    fetchObjectUrl(`/questions/images/${imageId}`).then(u => { url = u; setPreview(u); }).catch(() => setError('Could not load the picture'));
+    return () => { if (url) URL.revokeObjectURL(url); };
+  }, [imageId]);
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    setBusy(true);
+    try {
+      const image = await resizeImage(file);
+      const saved = await api<{ id: string }>('/questions/images', { method: 'POST', body: image });
+      onChange(saved.id);
+    } catch (err) {
+      setError((err as Error).message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="form-row" style={{ marginTop: 14 }}>
+      <span className="eyebrow">Picture (optional) — for "identify this person / object" questions</span>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        {preview && <img src={preview} alt="Question picture" style={{ width: 180, height: 120, objectFit: 'contain', border: '1px solid var(--line-strong)', borderRadius: 8, background: '#fff' }} />}
+        <label className="btn btn-ghost btn-sm" style={{ cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? 'Uploading…' : imageId ? 'Replace picture' : '+ Add picture'}
+          <input type="file" accept="image/jpeg,image/png,image/webp" onChange={pick} disabled={busy} style={{ display: 'none' }} />
+        </label>
+        {imageId && <button type="button" className="btn btn-danger btn-sm" onClick={() => onChange(null)} disabled={busy}>Remove picture</button>}
+      </div>
+      {error && <p className="error-text" style={{ textAlign: 'left' }}>{error}</p>}
+    </div>
   );
 }
 
@@ -444,8 +525,11 @@ function Editor({ draft, levels, onSave, onCancel }: {
 
         <div className="form-row" style={{ marginTop: 14 }}>
           <label className="eyebrow" htmlFor="q-text">Question</label>
-          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={500} required />
+          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={500} required
+            placeholder="e.g. Who is this computer scientist?  /  Identify this component" />
         </div>
+
+        <QuestionImage imageId={d.imageId ?? null} onChange={imageId => setD({ ...d, imageId })} />
 
         <fieldset style={{ border: 0, padding: 0, margin: '16px 0 0' }}>
           <legend className="eyebrow" style={{ marginBottom: 10 }}>Options — tick the correct answer</legend>

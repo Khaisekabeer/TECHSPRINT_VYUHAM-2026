@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSocket } from '../../contexts/SocketContext';
 import { useCountdown } from '../../hooks/useCountdown';
 import { session } from '../../lib/api';
-import { Panel, TimerRing } from '../../components/ui';
+import { Avatar, Panel, TimerRing } from '../../components/ui';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — players joining',
@@ -118,7 +118,7 @@ export default function LiveMonitor() {
               <tbody>
                 {roster.map(p => (
                   <tr key={p.id} style={{ opacity: (p.status ?? 'active') === 'active' ? 1 : 0.55 }}>
-                    <td style={{ fontWeight: 600 }}>{p.name}</td>
+                    <td style={{ fontWeight: 600 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Avatar id={p.avatar} size={26} />{p.name}</span></td>
                     <td className="mono" style={{ fontSize: '0.8rem' }}>{p.ticketId ?? '—'}</td>
                     <td>
                       {p.status === 'disqualified' ? <span className="pill pill-bad">Disqualified</span>

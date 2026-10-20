@@ -123,6 +123,10 @@ function decryptQuestion(dek, payload) {
   return JSON.parse(open(dek, payload, 'techsprint:question').toString('utf8'));
 }
 
+// Question images (raw bytes), sealed with the same key as the question text.
+const encryptImage = (dek, bytes) => seal(dek, bytes, 'techsprint:image');
+const decryptImage = (dek, payload) => open(dek, payload, 'techsprint:image');
+
 const newDek = () => crypto.randomBytes(32);
 
 // ─── Session-held DEK (serverless) ────────────────────────────────────────────
@@ -144,6 +148,8 @@ module.exports = {
   unwrapWithRecoveryCode,
   encryptQuestion,
   decryptQuestion,
+  encryptImage,
+  decryptImage,
   newDek,
   sealForSession,
   openForSession,

@@ -25,11 +25,12 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] },
 const game = createGame(io, { serverInfo: () => ({ lanAddresses: [], port: null }) });
 
 app.get('/', (req, res) => res.type('text').send('TechSprint live game server is running.'));
+app.get('/live-image/:index', game.liveImage);
 app.get('/health', (req, res) => res.json({ ok: true, state: game.status().state, ...game.publicConfig() }));
 
 // ─── Internal endpoints, called only by the admin API (shared secret) ──────────
 const internal = express.Router();
-internal.use(express.json({ limit: '1mb' }));
+internal.use(express.json({ limit: '60mb' })); // questions with their images
 internal.use((req, res, next) => {
   let expected;
   try { expected = linkSecret(); } catch { return res.status(503).json({ error: 'GAME_LINK_SECRET is not set on the game server' }); }

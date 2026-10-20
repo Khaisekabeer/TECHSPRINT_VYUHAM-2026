@@ -117,6 +117,14 @@ Leave the game server address empty. Test data: `npm run seed:test` in `backend/
 
 **Levels** are set up by the quiz master in Admin → Questions: add as many as needed, name them, and give each a points multiplier (default: 1 Warm-up ×1, 2 Core Tech ×2, 3 Brain Burner ×3). They are played in tab order, each opening with an intro on the projector; empty levels are skipped. A level can be deleted once it has no questions.
 
+**Looks:** the projector and phones use comic game themes — **Blast** (yellow sunburst), **Pop** (yellow & pink pop art), **Arcade** (lime burst), **Circuit** (blue tech windows) and **Classic** (plain white). Each level can have its own (level settings → "Look on screen"); left on *Automatic*, every round gets the next theme. The lobby and podium use Blast, with the Vyuham logo throughout.
+
+**Standings** on the projector show everyone still in, and the layout follows the size of the field: a dense grid for a crowd (80 players → 8 × 10 tiles), rows for 11–30, big character cards for the final 10. Before a cut, players below it are marked at risk; phones show each player's rank ("#12 of 80") and whether they're inside the cut.
+
+**Avatars:** players pick a character (cartoon person or robot) when they join; it appears on the projector, podium, host console and live monitor. Drawn in the browser (DiceBear Avataaars and Bottts, free for commercial use).
+
+**Picture questions** ("identify this person / object"): add a picture in the question editor. It is resized in the browser, stored encrypted with the question key, and served by the live game server only once that question is live — on the projector (large, next to the options) and on phones.
+
 Each question belongs to a level and is multiple-choice (2-4 options) or true/false, a timer (5-300 s) and base points. Hidden questions stay in the bank but are left out of the game.
 
 Scoring: `points × level multiplier`, scaled from 100% (instant) to 50% (last second), plus +200 for the first correct answer and +100 on a streak of 3+. Standings: higher score first; on a tie, less total answer time (a skipped question counts as its full timer, so skipping never helps).

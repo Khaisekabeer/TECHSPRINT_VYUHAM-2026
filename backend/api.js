@@ -15,6 +15,10 @@ const COORD = 'coordinator';
 const QM = 'quizmaster';
 const VOL = 'volunteer';
 const ROLES = [ADMIN, QM, COORD, VOL];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const THEMES = ['blast', 'pop', 'arcade', 'circuit', 'classic'];
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 const USERNAME_RE = /^[a-zA-Z0-9._@+-]{3,64}$/; // plain usernames or email addresses
 const PIN_RE = /^\d{4,8}$/;
@@ -51,7 +55,10 @@ function validateQuestion(body) {
   check(options.includes(correctAnswer), 'Pick the correct answer from the options');
   check(timeLimit >= 5 && timeLimit <= 300, 'Timer must be between 5 and 300 seconds');
   check(points >= 100 && points <= 10000, 'Points must be between 100 and 10000');
-  return { level, type, text, options, correctAnswer, timeLimit, points, isActive: body.isActive !== false };
+  // Optional picture for "identify this person / object" questions (uploaded separately, encrypted).
+  const imageId = body.imageId == null || body.imageId === '' ? null : String(body.imageId);
+  check(imageId === null || UUID_RE.test(imageId), 'Invalid image');
+  return { level, type, text, options, correctAnswer, timeLimit, points, imageId, isActive: body.isActive !== false };
 }
 
 /**
@@ -394,7 +401,32 @@ module.exports = function createApi(hooks) {
   // ─── Question bank (quiz master + PIN; contents encrypted at rest) ──────────
   const qm = [requireStaff(QM), requireVault];
   const dekOf = req => req.session.dek;
-  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer });
+  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId });
+  // The image a stored question points to (inside its encrypted content).
+  const imageOf = async (req, id) => {
+    const row = (await store.listQuestionRows()).find(r => r.id === id);
+    return row ? questionKeys.decryptRow(row, dekOf(req)).imageId ?? null : null;
+  };
+
+  // Upload a question image: the browser sends it resized (base64); stored encrypted.
+  const imageBody = express.json({ limit: '5mb' });
+  api.post('/questions/images', imageBody, ...qm, route(async (req, res) => {
+    const mime = String(req.body?.mime || '');
+    check(IMAGE_TYPES.includes(mime), 'Use a JPEG, PNG or WebP image');
+    const bytes = Buffer.from(String(req.body?.data || ''), 'base64');
+    check(bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES, 'Image must be under 3 MB');
+    const image = await store.insertImage({ mime, payload: vault.encryptImage(dekOf(req), bytes), bytes: bytes.length, created_by: req.session.staff.id });
+    res.status(201).json(image);
+  }));
+
+  // Preview for the quiz master (decrypted on the fly, never cached).
+  api.get('/questions/images/:id', ...qm, route(async (req, res) => {
+    check(UUID_RE.test(req.params.id), 'Invalid image');
+    const [image] = await store.getImages([req.params.id]);
+    if (!image) return res.status(404).json({ error: 'Image not found' });
+    res.set({ 'Content-Type': image.mime, 'Cache-Control': 'no-store' });
+    res.send(vault.decryptImage(dekOf(req), image.payload));
+  }));
 
   api.post('/questions/recovery-code', ...qm, route(async (req, res) => {
     res.json({ recoveryCode: await questionKeys.rotateRecoveryCode(dekOf(req)) });
@@ -418,14 +450,20 @@ module.exports = function createApi(hooks) {
   api.put('/questions/:id', small, ...qm, route(async (req, res) => {
     const q = validateQuestion(req.body || {});
     await checkLevelExists(q.level);
-    const row = await store.updateQuestion(Number(req.params.id), q, sealContent(req, q));
+    const id = Number(req.params.id);
+    const oldImage = await imageOf(req, id);
+    const row = await store.updateQuestion(id, q, sealContent(req, q));
     if (!row) return res.status(404).json({ error: 'Question not found' });
+    if (oldImage && oldImage !== q.imageId) await store.deleteImages([oldImage]);
     hooks.onQuestionsChanged(dekOf(req));
     res.json(questionKeys.decryptRow(row, dekOf(req)));
   }));
 
   api.delete('/questions/:id', ...qm, route(async (req, res) => {
-    await store.deleteQuestion(Number(req.params.id));
+    const id = Number(req.params.id);
+    const image = await imageOf(req, id);
+    await store.deleteQuestion(id);
+    if (image) await store.deleteImages([image]);
     hooks.onQuestionsChanged(dekOf(req));
     res.json({ success: true });
   }));
@@ -447,7 +485,9 @@ module.exports = function createApi(hooks) {
     check(multiplier > 0 && multiplier <= 10, 'Multiplier must be between 0.1 and 10');
     check(qualifyTop === null || (Number.isInteger(qualifyTop) && qualifyTop >= 1 && qualifyTop <= 10000),
       'Players who advance must be a whole number (or empty for everyone)');
-    return { name, multiplier, qualify_top: qualifyTop };
+    const theme = body?.theme == null || body.theme === '' ? null : String(body.theme);
+    check(theme === null || THEMES.includes(theme), 'Unknown theme');
+    return { name, multiplier, qualify_top: qualifyTop, theme };
   }
 
   api.get('/levels', requireStaff(QM), route(async (req, res) => {

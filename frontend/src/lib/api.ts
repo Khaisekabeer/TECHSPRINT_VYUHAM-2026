@@ -79,6 +79,14 @@ export async function downloadFile(path: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// Fetch an authenticated file (e.g. a question picture) as an object URL for <img>.
+export async function fetchObjectUrl(path: string): Promise<string> {
+  const s = session.get();
+  const res = await fetch(`${API_BASE}/api${path}`, { headers: s ? { Authorization: `Bearer ${s.token}` } : {} });
+  if (!res.ok) throw new ApiError('Could not load the file', res.status, {});
+  return URL.createObjectURL(await res.blob());
+}
+
 // Current staff session; re-renders on sign-in/out (including from other tabs).
 export function useStaffSession() {
   const [current, setCurrent] = useState<StaffSession | null>(session.get);

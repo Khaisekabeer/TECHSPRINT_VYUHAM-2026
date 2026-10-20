@@ -1,7 +1,7 @@
 import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Brand, Panel as SharedPanel, TimerRing, Toast } from '../components/ui';
+import { Avatar, Brand, Panel as SharedPanel, TimerRing, Toast } from '../components/ui';
 import StaffLogin from '../components/StaffLogin';
 import { CAN_HOST, ROLE_LABEL, session, signOut, useStaffSession } from '../lib/api';
 
@@ -14,7 +14,7 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 export default function HostConsole() {
-  const { socket, isConnected } = useSocket();
+  const { socket, isConnected, serverUrl } = useSocket();
   const current = useStaffSession();
   const token = current && CAN_HOST.includes(current.staff.role) ? current.token : null;
   const [loaded, setLoaded] = useState<{ count: number; by?: string } | null>(null);
@@ -157,7 +157,7 @@ export default function HostConsole() {
                 <div className="display heat" style={{ fontSize: 'clamp(2.6rem, 5vw, 3.8rem)', marginTop: 8 }}>{PHASE_LABEL[phase] ?? '—'}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span className="chip chip-heat">Level {level} · {gameState?.levelConfig?.name ?? '—'}</span>
+                <span className="chip chip-heat">Round {level}{gameState?.totalLevels ? `/${gameState.totalLevels}` : ''} · {gameState?.levelConfig?.name ?? '—'}{gameState?.levelConfig?.theme ? ` · ${gameState.levelConfig.theme}` : ''}</span>
                 <div className="display tabular" style={{ fontSize: '2.4rem', marginTop: 10 }}>
                   {questionNumber}<span className="faint" style={{ fontSize: '1.4rem' }}> / {total || '—'}</span>
                 </div>
@@ -228,6 +228,9 @@ export default function HostConsole() {
           {phase === 'question' && (
             <Panel bracketed>
               <div style={{ display: 'flex', gap: 22, alignItems: 'center' }}>
+                {gameState.currentQuestion?.hasImage ? (
+                  <img src={`${serverUrl}/live-image/${gameState.currentQuestionIndex}?t=${gameState.questionStartTime}`} alt="" style={{ width: 120, height: 96, objectFit: 'contain', border: '1px solid var(--line-strong)', borderRadius: 8, background: '#fff' }} />
+                ) : null}
                 <TimerRing value={timeLeft} max={gameState.currentQuestion?.timeLimit || 20} size={96} stroke={5} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="eyebrow eyebrow-heat">Live question</div>
@@ -264,6 +267,7 @@ export default function HostConsole() {
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--line)', opacity: p.connected && (p.status ?? 'active') === 'active' ? 1 : 0.5 }}>
                   <span className="mono tabular faint" style={{ width: 26, fontSize: '0.72rem' }}>{String(idx + 1).padStart(2, '0')}</span>
                   <span className={`dot ${p.connected ? 'dot-live' : ''}`} title={p.connected ? 'Online' : 'Offline'} />
+                  <Avatar id={p.avatar} size={30} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <span style={{ display: 'block', fontWeight: 600, fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                     {(p.ticketId || flagged(p)) && (
