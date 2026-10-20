@@ -44,12 +44,13 @@ internal.get('/status', (req, res) => res.json(game.status()));
 
 // Decrypted questions from the quiz master's "Load into game" (sent by the admin API).
 internal.post('/questions', (req, res) => {
-  const { questions, by } = req.body || {};
+  const { questions, by, bank } = req.body || {};
   const valid = Array.isArray(questions) && questions.every(q =>
     q && typeof q.text === 'string' && Array.isArray(q.options) && typeof q.correctAnswer === 'string'
     && Number.isInteger(q.level) && q.level >= 1 && q.level <= 99);
   if (!valid) return res.status(400).json({ error: 'Invalid question list' });
-  const result = game.loadQuestions(questions, typeof by === 'string' ? by.slice(0, 60) : 'Quiz master');
+  const set = bank && typeof bank.id === 'string' && typeof bank.name === 'string' ? { id: bank.id.slice(0, 64), name: bank.name.slice(0, 60) } : null;
+  const result = game.loadQuestions(questions, typeof by === 'string' ? by.slice(0, 60) : 'Staff', set);
   res.status(result.error ? 409 : 200).json(result);
 });
 

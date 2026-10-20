@@ -86,13 +86,13 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
   }
 
   // ─── Questions ──────────────────────────────────────────────────────────────
-  let questionsLoaded = null; // { count, by, at }
+  let questionsLoaded = null; // { count, by, at, bank: { id, name } }
 
-  function loadQuestions(questions, byName) {
+  function loadQuestions(questions, byName, bank = null) {
     if (gameEngine.state !== 'lobby') return { error: 'Questions can only be loaded while the game is in the lobby' };
     gameEngine.setQuestions(questions);
-    questionsLoaded = { count: questions.length, by: byName, at: Date.now() };
-    console.log(`${byName} loaded ${questions.length} questions into the game`);
+    questionsLoaded = { count: questions.length, by: byName, at: Date.now(), bank };
+    console.log(`${byName} loaded ${questions.length} questions${bank ? ` from "${bank.name}"` : ''} into the game`);
     broadcastState();
     io.to('host').to('monitor').emit('questions_loaded', questionsLoaded);
     return { success: true, ...questionsLoaded };
@@ -204,7 +204,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     load_questions(callback) {
       callback(questionsLoaded
         ? { success: true, ...questionsLoaded }
-        : { error: 'Questions are loaded by the quiz master (Admin → Questions → Load into game)' });
+        : { error: 'Load a question set first (pick the set and enter its PIN)' });
     },
 
     start_game(callback, data, staff) {

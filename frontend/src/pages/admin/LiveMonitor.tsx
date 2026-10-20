@@ -20,7 +20,7 @@ export default function LiveMonitor() {
   const [gameState, setGameState] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
-  const [loaded, setLoaded] = useState<{ count: number; by?: string } | null>(null);
+  const [loaded, setLoaded] = useState<{ count: number; by?: string; bank?: { name: string } | null } | null>(null);
   const [error, setError] = useState('');
 
   const timeLeft = useCountdown(gameState?.state === 'question' ? gameState.questionEndsAt : null, gameState?.serverNow);
@@ -80,7 +80,7 @@ export default function LiveMonitor() {
         <Panel>
           <div className="eyebrow">Questions loaded</div>
           <div className="stat-value">{loaded?.count ?? 0}</div>
-          {loaded?.by && <div className="dim" style={{ fontSize: '0.8rem', marginTop: 6 }}>by {loaded.by}</div>}
+          {loaded?.count ? <div className="dim" style={{ fontSize: '0.8rem', marginTop: 6 }}>{loaded.bank?.name ?? 'Set'}{loaded.by ? ` · by ${loaded.by}` : ''}</div> : null}
         </Panel>
       </div>
 

@@ -114,6 +114,16 @@ async function unwrapWithRecoveryCode(vaultRow, code) {
   return open(kek, vaultRow.recovery_wrapped, 'techsprint:recovery');
 }
 
+// ─── Question set key, sealed with the set's PIN (plus the server secret) ─────
+async function sealBankKey(dek, pin) {
+  const salt = b64(crypto.randomBytes(16));
+  return { pin_salt: salt, wrapped_dek: seal(await deriveKek(pin, salt), dek, 'techsprint:bank-dek') };
+}
+
+async function openBankKey(bank, pin) {
+  return open(await deriveKek(pin, bank.pin_salt), bank.wrapped_dek, 'techsprint:bank-dek'); // throws on a wrong PIN
+}
+
 // ─── Question payloads ────────────────────────────────────────────────────────
 function encryptQuestion(dek, { text, options, correctAnswer }) {
   return seal(dek, Buffer.from(JSON.stringify({ text, options, correctAnswer })), 'techsprint:question');
@@ -150,6 +160,8 @@ module.exports = {
   decryptQuestion,
   encryptImage,
   decryptImage,
+  sealBankKey,
+  openBankKey,
   newDek,
   sealForSession,
   openForSession,

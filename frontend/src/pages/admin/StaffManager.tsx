@@ -6,8 +6,8 @@ interface StaffRow { id: string; username: string; displayName: string; role: Ro
 
 const ROLE_HELP: Record<Role, string> = {
   admin: 'Management: participants (MakeMyPass CSV), staff accounts, check-in, settings, results. Everything except the question bank.',
-  quizmaster: 'Writes the questions and answers in the encrypted question bank (opened with a PIN) and loads them into the game.',
-  coordinator: 'Conducts the live event from the host console: start, next question, reveal, kick, reset.',
+  quizmaster: 'Builds the question sets (e.g. Main set, Trial set). Each set is encrypted and has its own PIN, chosen by the quiz master.',
+  coordinator: 'Conducts the live event from the host console: loads a question set with its PIN, then start, next question, reveal, disqualify, reset.',
   volunteer: 'Checks in passes at the entry and monitors the live event (who is online, answers in).',
 };
 
@@ -36,10 +36,6 @@ export default function StaffManager() {
     const password = prompt(`New password for ${s.displayName} (at least 8 characters):`);
     if (password) patch(s, { password }, `Password updated for ${s.displayName}.`);
   };
-  const setPin = (s: StaffRow) => {
-    const pin = prompt(`New question-bank PIN for ${s.displayName} (4-8 digits).\n\nThey'll get the question key back the next time another quiz master unlocks the bank, or with the recovery code.`);
-    if (pin) patch(s, { pin }, `PIN updated for ${s.displayName}.`);
-  };
   const toggleActive = (s: StaffRow) => {
     if (s.active && !confirm(`Deactivate ${s.displayName}? They will be signed out immediately.`)) return;
     patch(s, { active: !s.active });
@@ -63,7 +59,6 @@ export default function StaffManager() {
                   <td>{s.active ? <span className="pill pill-good">Active</span> : <span className="pill pill-bad">Disabled</span>}</td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     <button className="btn btn-ghost btn-sm" onClick={() => resetPassword(s)}>Password</button>{' '}
-                    {s.role === 'quizmaster' && <><button className="btn btn-ghost btn-sm" onClick={() => setPin(s)}>PIN</button>{' '}</>}
                     {s.id !== me?.staff.id && (
                       <button className={`btn btn-sm ${s.active ? 'btn-danger' : 'btn-ghost'}`} onClick={() => toggleActive(s)}>
                         {s.active ? 'Disable' : 'Enable'}
@@ -81,7 +76,7 @@ export default function StaffManager() {
 }
 
 function CreateStaff({ onCreated }: { onCreated: () => void }) {
-  const empty = { displayName: '', username: '', role: 'volunteer' as Role, password: '', pin: '' };
+  const empty = { displayName: '', username: '', role: 'volunteer' as Role, password: '' };
   const [form, setForm] = useState(empty);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -93,7 +88,6 @@ function CreateStaff({ onCreated }: { onCreated: () => void }) {
     setMessage(null);
     try {
       const body: Record<string, string> = { displayName: form.displayName, username: form.username, role: form.role, password: form.password };
-      if (form.role === 'quizmaster') body.pin = form.pin;
       await api('/staff', { method: 'POST', body });
       setMessage({ ok: true, text: `Created ${ROLE_LABEL[form.role].toLowerCase()} "${form.username}". Share the username and password with them privately.` });
       setForm(empty);
@@ -130,13 +124,6 @@ function CreateStaff({ onCreated }: { onCreated: () => void }) {
             <label className="eyebrow" htmlFor="st-pass">Password</label>
             <input id="st-pass" className="field field-sm" type="password" value={form.password} onChange={set('password')} required minLength={8} autoComplete="new-password" />
           </div>
-          {form.role === 'quizmaster' && (
-            <div className="form-row">
-              <label className="eyebrow" htmlFor="st-pin">Question-bank PIN</label>
-              <input id="st-pin" className="field field-sm" type="password" inputMode="numeric" value={form.pin} onChange={set('pin')}
-                required pattern="\d{4,8}" title="4-8 digits" autoComplete="new-password" />
-            </div>
-          )}
         </div>
         <p className="dim" style={{ fontSize: '0.85rem', margin: '14px 0' }}>{ROLE_HELP[form.role]}</p>
         <button type="submit" className="btn btn-heat" disabled={busy}>{busy ? 'Creating…' : 'Create account'}</button>

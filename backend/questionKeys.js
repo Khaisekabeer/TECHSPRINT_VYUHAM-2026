@@ -1,103 +1,109 @@
-// Question bank key management on top of vault.js: unlocking with a quiz master's PIN,
-// first-time setup (with a one-time recovery code), recovery, granting the key to other quiz
-// masters, and decrypting questions for the bank and the game.
+// Question sets ("Main set", "Trial set", ...) on top of vault.js. Each set has its own key (DEK),
+// sealed with the set's PIN + the server secret, and a one-time recovery code. The PIN belongs to
+// the set: the quiz master who creates it chooses it, and the coordinator enters it to load the
+// set into the game. Nobody else (admins included) can read a set's questions.
 const vault = require('./vault');
 const store = require('./store');
 
 const { VaultError } = vault;
+const PIN_RE = /^\d{4,12}$/;
 
-// Make sure a quiz master has a key pair (accounts created before encryption get one on unlock).
-async function ensureKeyPair(staffRow, pin) {
-  if (staffRow.vault_public_key && staffRow.vault_private_key) return staffRow;
-  const keys = await vault.createKeyPair(pin);
-  await store.updateStaff(staffRow.id, keys);
-  return { ...staffRow, ...keys };
+const checkPin = pin => {
+  if (!PIN_RE.test(String(pin ?? ''))) throw new VaultError('The PIN must be 4 to 12 digits', 'BAD_INPUT');
+  return String(pin);
+};
+
+async function loadBank(bankId) {
+  const bank = await store.getBank(bankId);
+  if (!bank) throw new VaultError('Question set not found', 'NOT_FOUND');
+  return bank;
 }
 
-/**
- * Unlock the question key for a quiz master whose PIN has already been verified.
- * Returns { dek, recoveryCode? } — recoveryCode only when the bank is set up for the first time.
- */
-async function unlock(staffRow, pin) {
-  let me = await ensureKeyPair(staffRow, pin);
-  let privateKey;
-  try {
-    privateKey = await vault.openPrivateKey(me, pin);
-  } catch {
-    // Key pair from an older PIN: start over with a fresh pair; the old grant is useless.
-    const keys = await vault.createKeyPair(pin);
-    await store.updateStaff(me.id, keys);
-    await store.deleteGrant(me.id);
-    me = { ...me, ...keys };
-    privateKey = await vault.openPrivateKey(me, pin);
-  }
-  const grant = await store.getGrant(me.id);
-  if (grant) {
-    try {
-      return { dek: vault.unwrapWithPrivateKey(grant.wrapped_dek, privateKey) };
-    } catch {
-      await store.deleteGrant(me.id); // wrapped to a previous key pair
-    }
-  }
-
-  if (await store.getVault()) {
-    throw new VaultError(
-      "Your account doesn't have the question key yet. It's shared automatically the next time another quiz master unlocks the bank — or use the recovery code.",
-      'NEEDS_GRANT',
-    );
-  }
-
-  // First unlock ever: create the key, a recovery copy, and this quiz master's grant.
-  const dek = vault.newDek();
+// Seal a set's key with a new PIN and a fresh recovery code (returned once, to show the user).
+async function sealNew(dek, pin) {
   const recoveryCode = vault.newRecoveryCode();
-  try {
-    await store.insertVault({ ...(await vault.wrapWithRecoveryCode(dek, recoveryCode)), created_by: me.id });
-  } catch {
-    throw new VaultError('Another quiz master is setting up the question bank right now — try again in a moment.', 'NEEDS_GRANT');
-  }
-  await store.upsertGrant({ staff_id: me.id, wrapped_dek: vault.wrapForPublicKey(dek, me.vault_public_key), granted_by: me.id });
-  return { dek, recoveryCode };
+  return {
+    fields: { ...(await vault.sealBankKey(dek, pin)), ...(await vault.wrapWithRecoveryCode(dek, recoveryCode)) },
+    recoveryCode,
+  };
 }
 
-// Regain access with the recovery code (e.g. the only quiz master's PIN was reset).
-async function recover(staffRow, pin, recoveryCode) {
-  const vaultRow = await store.getVault();
-  if (!vaultRow) throw new VaultError('The question bank has not been set up yet — just unlock with your PIN.', 'NO_VAULT');
+async function createBank(name, pin, staffId) {
+  const dek = vault.newDek();
+  const { fields, recoveryCode } = await sealNew(dek, checkPin(pin));
+  const bank = await store.insertBank({ name, ...fields, created_by: staffId });
+  return { bank, dek, recoveryCode };
+}
+
+// The set's key, given its PIN.
+async function openBank(bankId, pin) {
+  const bank = await loadBank(bankId);
+  if (!bank.wrapped_dek) throw new VaultError('This set has no PIN yet — the quiz master sets it up first', 'NOT_SET_UP');
+  try {
+    return { bank, dek: await vault.openBankKey(bank, String(pin ?? '')) };
+  } catch {
+    throw new VaultError('Wrong PIN for this set', 'BAD_PIN');
+  }
+}
+
+// ─── Moving the old single bank into a set (once) ────────────────────────────
+// Before sets existed, the key was opened with a quiz master's account PIN (or the old recovery
+// code). The quiz master proves one of those once; the same key is then sealed with the set PIN,
+// so the existing encrypted questions stay readable.
+async function legacyKey({ staffRow, legacyPin, legacyRecoveryCode }) {
+  if (legacyRecoveryCode) {
+    const old = await store.getVault();
+    if (!old) throw new VaultError('There is no old question bank to move', 'NO_LEGACY');
+    try { return await vault.unwrapWithRecoveryCode(old, legacyRecoveryCode); } catch { throw new VaultError('That recovery code is not correct', 'BAD_RECOVERY'); }
+  }
+  if (!staffRow?.vault_private_key) throw new VaultError('This account never unlocked the old bank — use the old recovery code instead', 'NO_LEGACY');
+  let privateKey;
+  try { privateKey = await vault.openPrivateKey(staffRow, String(legacyPin ?? '')); } catch { throw new VaultError('That old quiz master PIN is not correct', 'BAD_PIN'); }
+  const grant = await store.getGrant(staffRow.id);
+  if (!grant) throw new VaultError("This account doesn't hold the old key — use the old recovery code instead", 'NO_LEGACY');
+  try { return vault.unwrapWithPrivateKey(grant.wrapped_dek, privateKey); } catch { throw new VaultError("This account's old key can't be opened — use the old recovery code", 'NO_LEGACY'); }
+}
+
+// Give a set without a PIN (the migrated one) its PIN. With questions already encrypted, the old
+// key is needed; an empty set just gets a new key.
+async function setupBank(bankId, pin, legacy) {
+  const bank = await loadBank(bankId);
+  if (bank.wrapped_dek) throw new VaultError('This set already has a PIN', 'ALREADY_SET_UP');
+  checkPin(pin);
+  const rows = await store.listQuestionRows(bankId);
+  const sample = rows.find(r => r.payload);
+  const dek = sample ? await legacyKey(legacy) : vault.newDek();
+  // Check the key really opens the questions before sealing it with the new PIN.
+  if (sample) {
+    try { vault.decryptQuestion(dek, sample.payload); } catch { throw new VaultError("That key doesn't open these questions", 'BAD_PIN'); }
+  }
+  const { fields, recoveryCode } = await sealNew(dek, String(pin));
+  await store.updateBank(bankId, fields);
+  return { bank: { ...bank, ...fields }, dek, recoveryCode };
+}
+
+async function changeBankPin(bankId, currentPin, newPin) {
+  checkPin(newPin);
+  const { dek } = await openBank(bankId, currentPin);
+  await store.updateBank(bankId, await vault.sealBankKey(dek, String(newPin)));
+}
+
+// Forgotten PIN: the recovery code sets a new one.
+async function recoverBank(bankId, recoveryCode, newPin) {
+  checkPin(newPin);
+  const bank = await loadBank(bankId);
+  if (!bank.recovery_wrapped) throw new VaultError('This set has no recovery code yet', 'NOT_SET_UP');
   let dek;
-  try {
-    dek = await vault.unwrapWithRecoveryCode(vaultRow, recoveryCode);
-  } catch {
-    throw new VaultError('That recovery code is not correct', 'BAD_RECOVERY');
-  }
-  const me = await ensureKeyPair(staffRow, pin);
-  await store.upsertGrant({ staff_id: me.id, wrapped_dek: vault.wrapForPublicKey(dek, me.vault_public_key), granted_by: me.id });
-  return dek;
+  try { dek = await vault.unwrapWithRecoveryCode(bank, recoveryCode); } catch { throw new VaultError('That recovery code is not correct', 'BAD_RECOVERY'); }
+  await store.updateBank(bankId, await vault.sealBankKey(dek, String(newPin)));
+  return { bank, dek };
 }
 
-// After any unlock: share the key with quiz masters who lack it, and encrypt plaintext questions
-// (legacy rows or ones imported with `npm run seed`).
-async function afterUnlock(dek, staffId) {
-  for (const qm of await store.quizmastersWithoutGrant()) {
-    await store.upsertGrant({ staff_id: qm.id, wrapped_dek: vault.wrapForPublicKey(dek, qm.vault_public_key), granted_by: staffId });
-  }
-  let sealed = 0;
-  for (const row of await store.listQuestionRows()) {
-    if (row.payload) continue;
-    const payload = vault.encryptQuestion(dek, { text: row.text, options: row.options || [], correctAnswer: row.correct_answer });
-    await store.sealQuestionRow(row.id, payload);
-    sealed++;
-  }
-  if (sealed) console.log(`Encrypted ${sealed} plaintext question(s)`);
-  // Images uploaded but never saved with a question (editor closed) are removed after an hour.
-  const used = new Set((await store.listQuestionRows()).map(r => decryptRow(r, dek).imageId).filter(Boolean));
-  const stale = (await store.listImageMeta()).filter(i => !used.has(i.id) && Date.now() - new Date(i.created_at).getTime() > 3600e3);
-  if (stale.length) await store.deleteImages(stale.map(i => i.id));
-}
-
-// New PIN → new key pair; the old grant can't be opened any more, so it is removed and
-// re-issued automatically by the next unlocking quiz master.
-async function keysForNewPin(pin) {
-  return vault.createKeyPair(pin);
+// Replace a set's recovery code (the old one stops working). Needs the open set's key.
+async function rotateRecoveryCode(bankId, dek) {
+  const recoveryCode = vault.newRecoveryCode();
+  await store.updateBank(bankId, await vault.wrapWithRecoveryCode(dek, recoveryCode));
+  return recoveryCode;
 }
 
 // Full question objects for the bank / game. Rows that are still plaintext are read as-is.
@@ -118,17 +124,27 @@ function decryptRow(row, dek) {
   };
 }
 
-// Replace the recovery code (the old one stops working). Needs the unlocked key.
-async function rotateRecoveryCode(dek) {
-  const recoveryCode = vault.newRecoveryCode();
-  await store.updateVaultRecovery(await vault.wrapWithRecoveryCode(dek, recoveryCode));
-  return recoveryCode;
+// After a set is opened: encrypt plaintext rows (e.g. from `npm run seed`) and remove pictures
+// uploaded but never saved with a question (editor closed) after an hour.
+async function afterOpen(bankId, dek) {
+  const rows = await store.listQuestionRows(bankId);
+  let sealed = 0;
+  for (const row of rows) {
+    if (row.payload) continue;
+    await store.sealQuestionRow(row.id, vault.encryptQuestion(dek, { text: row.text, options: row.options || [], correctAnswer: row.correct_answer }));
+    sealed++;
+  }
+  if (sealed) console.log(`Encrypted ${sealed} plaintext question(s)`);
+  const used = new Set(rows.map(r => decryptRow(r, dek).imageId).filter(Boolean));
+  const stale = (await store.listImageMeta(bankId)).filter(i => !used.has(i.id) && Date.now() - new Date(i.created_at).getTime() > 3600e3);
+  if (stale.length) await store.deleteImages(stale.map(i => i.id));
 }
 
-// Decrypted, active questions in play order (level number, then position), each carrying its
-// level's name, multiplier and cut (qualifyTop) — only ever held in the game server's memory.
-async function loadGameQuestions(dek) {
-  const [rows, levels] = await Promise.all([store.listQuestionRows(), store.listLevels()]);
+// Decrypted, active questions of one set in play order (level number, then position), each
+// carrying its level's name, multiplier, cut and theme, plus its picture — only ever held in the
+// game server's memory.
+async function loadGameQuestions(bankId, dek) {
+  const [rows, levels] = await Promise.all([store.listQuestionRows(bankId), store.listLevels(bankId)]);
   const byNumber = new Map(levels.map(l => [l.number, l]));
   const questions = rows.filter(r => r.is_active).map(r => {
     const level = byNumber.get(r.level);
@@ -140,10 +156,21 @@ async function loadGameQuestions(dek) {
       theme: level?.theme ?? null,
     };
   });
-  // Images travel with the questions (decrypted, base64) and stay in the game server's memory.
-  const images = new Map((await store.getImages(questions.map(q => q.imageId).filter(Boolean)))
+  const images = new Map((await store.getImages(questions.map(q => q.imageId).filter(Boolean), bankId))
     .map(img => [img.id, { mime: img.mime, data: vault.decryptImage(dek, img.payload).toString('base64') }]));
   return questions.map(({ imageId, ...q }) => ({ ...q, image: imageId ? images.get(imageId) ?? null : null }));
 }
 
-module.exports = { VaultError, unlock, recover, afterUnlock, keysForNewPin, decryptRow, loadGameQuestions, rotateRecoveryCode };
+module.exports = {
+  VaultError,
+  PIN_RE,
+  createBank,
+  openBank,
+  setupBank,
+  changeBankPin,
+  recoverBank,
+  rotateRecoveryCode,
+  afterOpen,
+  decryptRow,
+  loadGameQuestions,
+};

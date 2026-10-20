@@ -24,20 +24,6 @@ function enqueue(label, fn) {
   return writeQueue;
 }
 
-function toQuestion(row) {
-  return {
-    id: row.id,
-    level: row.level,
-    text: row.text,
-    type: row.type,
-    options: row.options || [],
-    correctAnswer: row.correct_answer,
-    timeLimit: row.time_limit,
-    points: row.points,
-    imageUrl: row.image_url,
-  };
-}
-
 function toParticipantRow(gameId, p) {
   return {
     id: p.id,
@@ -54,19 +40,6 @@ function toParticipantRow(gameId, p) {
     eliminated_level: p.exit?.level ?? null,
     updated_at: new Date().toISOString(),
   };
-}
-
-async function getAllQuestions() {
-  const { data, error } = await supabase
-    .from('questions')
-    .select('*')
-    .eq('is_active', true)
-    .order('level')
-    .order('position')
-    .order('id')
-    .abortSignal(AbortSignal.timeout(10000)); // never leave the host waiting on a stalled request
-  if (error) throw new Error(`Loading questions failed: ${error.message}`);
-  return data.map(toQuestion);
 }
 
 // The game row is created when the host starts the game, so lobbies that never start leave no trace.
@@ -146,27 +119,9 @@ function deleteParticipant(participantId) {
     .eq('id', participantId));
 }
 
-async function replaceQuestions(questions) {
-  const { error: delError } = await supabase.from('questions').delete().gte('id', 0);
-  if (delError) throw new Error(`Clearing questions failed: ${delError.message}`);
-  const rows = questions.map((q, i) => ({
-    level: q.level || 1,
-    position: i,
-    text: q.text,
-    type: q.type,
-    options: q.options || [],
-    correct_answer: q.correctAnswer,
-    time_limit: q.timeLimit || 20,
-    points: q.points || 1000,
-    image_url: q.imageUrl || null,
-  }));
-  const { error } = await supabase.from('questions').insert(rows);
-  if (error) throw new Error(`Inserting questions failed: ${error.message}`);
-}
 
 module.exports = {
   supabase,
-  getAllQuestions,
   markGameStarted,
   saveParticipants,
   saveQuestionResults,
@@ -174,6 +129,5 @@ module.exports = {
   deleteParticipant,
   recordEliminations,
   logEvents,
-  replaceQuestions,
   flush: () => writeQueue,
 };

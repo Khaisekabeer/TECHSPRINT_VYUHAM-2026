@@ -11,7 +11,7 @@ A real-time multiplayer quiz for live events: participants are checked in at the
  Phones, projector,     │  all pages (React build)        │      Supabase Postgres
  host console, admin ──►│  /api  admin API (serverless) ──┼───►  staff, registrations,
         │               └────────────┬────────────────────┘      encrypted questions,
-        │                            │ Load into game             games, answers
+        │                            │ Load set (with its PIN)    games, answers
         │ Socket.IO (wss)            │ (server-to-server,              ▲
         ▼                            ▼  GAME_LINK_SECRET)              │
  https://game.yourdomain.com ── Cloudflare Tunnel ── event-day laptop: npm run game
@@ -35,24 +35,25 @@ Every staff member has their own login (username or email), created by an admin 
 
 | Role | Responsibility | Can do |
 |---|---|---|
-| **Admin** | Management | Import participants (MakeMyPass CSV), check-in dashboard, scan passes, manage staff, settings (game server address, *require check-in*), results CSV, host console. Everything except the question bank |
-| **Quiz master** | Questions & answers | Encrypted question bank behind a **second PIN**: levels (add, rename, points multiplier), add/edit/reorder/hide questions per level, timers, points; **Load into game** |
-| **Coordinator** | Conducts the live event | Host console (start, next question, reveal, kick, reset) and the live monitor |
+| **Admin** | Management | Import participants (MakeMyPass CSV), check-in dashboard, scan passes, manage staff, settings (game server address, *require check-in*), results CSV, host console. Can't read question sets (only load one with its PIN) |
+| **Quiz master** | Questions & answers | **Question sets** (e.g. Main set, Trial set), each encrypted with its own PIN chosen by the quiz master: levels, questions, pictures, timers, points, themes; gives the coordinator the PIN of the set to play |
+| **Coordinator** | Conducts the live event | Host console: **loads a question set with its PIN**, then start, next question, reveal, disqualify, reset; live monitor |
 | **Volunteer** | Monitors the live event | Pass check-in scanner and the read-only live monitor (who is online/disconnected, answers in) |
 
 - **First sign-in:** on first start the server creates an admin `admin` whose password is `ADMIN_PASSWORD` from `backend/.env`. Sign in, create real accounts, then change or disable `admin`.
 
-## Question bank encryption
+## Question sets & PINs
 
 Questions are only ever visible to quiz masters until they appear live on the projector.
 
-- Each question's text, options and correct answer are stored **encrypted** (AES-256-GCM) in Supabase. The database, the Supabase dashboard, admins and coordinators only ever see ciphertext.
-- The encryption key is never stored in the clear. It is wrapped for each quiz master with a key derived from their **PIN** plus the server secret `QUESTION_VAULT_SECRET`. Entering the PIN in **Admin → Questions** unlocks it for 30 minutes (*Lock now* ends it early). While unlocked, the key is kept with the session, sealed under the session token that only the quiz master's browser holds.
-- **Load into game** (quiz master, game in the lobby) decrypts the active questions and sends them straight to the game server's memory. The coordinator then conducts the game; phones and the projector receive each question only when it goes live, and the answer only at the reveal. After a game-server restart the quiz master loads them again.
-- **Several quiz masters:** whenever one quiz master unlocks, every other quiz master automatically receives their own copy of the key — no PIN sharing. A quiz master whose PIN is reset gets it again the same way.
-- **Recovery code:** shown once when the bank is first encrypted (and on *New recovery code*). It is the only way back in if every quiz master's PIN is lost. Store it offline.
-- **Back up `QUESTION_VAULT_SECRET`.** Without it (and with the database alone) the questions cannot be decrypted.
-- `npm run seed` writes plaintext rows; they are encrypted automatically the next time a quiz master unlocks the bank. Keep real questions out of `seed_questions.json` and out of git.
+- **Sets:** questions live in **question sets** — e.g. *Main set* (the real event) and *Trial set* (a practice round). Each set has its own levels, questions, **PIN** and **recovery code**. The PIN belongs to the set, not to an account.
+- **Quiz master:** creates a set (Admin → Questions → *+ New question set*), names it and chooses its PIN (4–12 digits). Opening a set with its PIN unlocks it for editing for 30 minutes (*Lock · switch set* ends it early). From the open set they can rename it, **change the PIN**, make a **new recovery code**, or delete it.
+- **Coordinator:** loads the set to play from the **host console** (lobby → *Question set*): pick the set, enter the PIN the quiz master gave them, *Load set*. They never see the questions — they go straight to the game server's memory and reach phones/projector one at a time (answers only at the reveal). After a game-server restart, load the set again. A quiz master can also load the set they have open, to test it.
+- **Encryption:** each question's text, options, answer and picture is encrypted (AES-256-GCM) with the set's key. The key is stored only sealed with a key derived from the **set PIN plus the server secret** `QUESTION_VAULT_SECRET`, so a copy of the database can't be brute-forced, and admins can't read questions. Wrong PINs are limited (5 per person per 5 minutes, 30 per set per 15 minutes).
+- **Forgot a set's PIN:** *Forgot PIN* on the set → enter that set's recovery code → choose a new PIN. Without the PIN or the recovery code, the set can't be opened by anyone.
+- **Moving the old question bank:** questions written before sets existed are in *Trial set*, which needs a PIN once: a quiz master clicks *Set up*, enters their **old quiz master PIN** (or the old recovery code) and chooses the new set PIN.
+- **Back up `QUESTION_VAULT_SECRET`** (backend `.env` and Vercel). Without it, no set can be decrypted, even with the right PIN.
+- `npm run seed` / `npm run seed:test` add plaintext questions to a set (default *Trial set*); they're encrypted the next time a quiz master opens it. Keep real questions out of `seed_questions.json` and out of git.
 
 ## Check-in flow
 
@@ -71,7 +72,7 @@ The camera needs HTTPS — Vercel provides it. (In all-in-one LAN mode, `HTTPS=t
 |---|---|---|
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | Vercel + laptop | Supabase → Project Settings → API Keys |
 | `QUESTION_VAULT_SECRET` | Vercel (+ laptop for all-in-one mode) | Decrypts the question bank with the quiz master's PIN. **Back it up.** |
-| `GAME_LINK_SECRET` | Vercel + laptop (same value) | Authenticates *Load into game* from Vercel to the laptop |
+| `GAME_LINK_SECRET` | Vercel + laptop (same value) | Authenticates loading a question set from Vercel to the laptop |
 | `ADMIN_PASSWORD` | first run only | Password of the bootstrap `admin` account |
 
 Generate secrets with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Never commit `.env`.
@@ -160,7 +161,7 @@ Flags appear in the host console and the volunteers' **Live monitor** ("to watch
 1. Laptop: `npm run game` + `cloudflared tunnel run techsprint`; Admin → Overview shows the game server **Online**.
 2. Volunteers sign in at `/admin` on their phones and check people in at the entry.
 3. Projector: open `/screen` on the Vercel address, press F11. Its QR code points players to the Vercel address.
-4. Quiz master: `/admin` → Questions → enter PIN → **Load into game**.
+4. Coordinator: host console → *Question set* → pick the set (e.g. Trial set for a practice round, then Main set) → enter its PIN from the quiz master → **Load set**.
 5. Coordinator: `/admin` → Live event → **Open host console**.
 6. Players scan the QR and join with their ticket ID while the game is in the lobby.
 7. **Start game** → **Next question**. Each question ends automatically when its timer runs out. After the last question, **Show final results** shows the podium; every phone shows its rank.
@@ -170,8 +171,8 @@ Flags appear in the host console and the volunteers' **Live monitor** ("to watch
 - [ ] Real staff accounts created; `admin` password changed or account disabled
 - [ ] Participant CSV imported; a test pass scans and admits correctly
 - [ ] Game server **Online** in Admin → Overview; laptop on power and won't sleep
-- [ ] Quiz master can unlock the bank and **Load into game**; question count correct in the host console
-- [ ] Recovery code, `QUESTION_VAULT_SECRET` and `GAME_LINK_SECRET` stored safely offline
+- [ ] Every set has a PIN; the coordinator has the PIN of the set to play and can **Load set**; question count correct in the host console
+- [ ] Each set's recovery code, `QUESTION_VAULT_SECRET` and `GAME_LINK_SECRET` stored safely offline
 - [ ] Venue internet works for players' phones (backup: mobile data / hotspot)
 - [ ] Test with 2-3 phones before the crowd arrives
 - [ ] Supabase project is active (free projects pause after a week of inactivity)
@@ -199,7 +200,7 @@ cd backend
 SERVER_URL=http://localhost:3001 node load-test.js 150
 ```
 
-Runs against the all-in-one server. Runs the game as an admin/coordinator (`LOADTEST_USER` / `LOADTEST_PASSWORD`); set `LOADTEST_QM_USER` / `LOADTEST_QM_PASSWORD` / `LOADTEST_QM_PIN` to have a quiz master unlock and load the questions. Seeds checked-in `LTTEST…` tickets when check-in is required, plays a full game with 150 simulated players, checks rejoin and malformed input, and reports latency. It resets the server's current game and saves results to Supabase like a real game.
+Runs against the all-in-one server. Runs the game as an admin/coordinator (`LOADTEST_USER` / `LOADTEST_PASSWORD`); set `LOADTEST_SET` / `LOADTEST_SET_PIN` (a set name and its PIN) to have it load that set, like the coordinator. Seeds checked-in `LTTEST…` tickets when check-in is required, plays a full game with 150 simulated players, checks rejoin and malformed input, and reports latency. It resets the server's current game and saves results to Supabase like a real game.
 
 ## Limitations
 
