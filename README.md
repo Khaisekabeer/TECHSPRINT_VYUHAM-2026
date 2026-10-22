@@ -118,7 +118,7 @@ Leave the game server address empty. Test data: `npm run seed:test` in `backend/
 
 **Levels** are set up by the quiz master in Admin → Questions: add as many as needed, name them, and give each a points multiplier (default: 1 Warm-up ×1, 2 Core Tech ×2, 3 Brain Burner ×3). They are played in tab order, each opening with an intro on the projector; empty levels are skipped. A level can be deleted once it has no questions.
 
-**Looks:** the projector and phones use comic game themes — **Blast** (yellow sunburst), **Pop** (yellow & pink pop art), **Arcade** (lime burst), **Circuit** (blue tech windows) and **Classic** (plain white). Each level can have its own (level settings → "Look on screen"); left on *Automatic*, every round gets the next theme. The lobby and podium use Blast, with the Vyuham logo throughout.
+**Look:** the projector and phones use a monochrome "ink on paper" style — off-white, black and soft grey gradients, with quiet abstract touches (concentric rings, faint sunburst rays, halftone corners, a thin starburst outline behind big titles) and the Vyuham logo. Every level looks the same; colour is kept for meaning (A–D answers, right/wrong, rank changes, the cut line).
 
 **Standings** on the projector show everyone still in, and the layout follows the size of the field: a dense grid for a crowd (80 players → 8 × 10 tiles), rows for 11–30, big character cards for the final 10. Before a cut, players below it are marked at risk; phones show each player's rank ("#12 of 80") and whether they're inside the cut.
 
