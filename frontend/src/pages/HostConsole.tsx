@@ -175,7 +175,7 @@ export default function HostConsole() {
                 <div className="display heat" style={{ fontSize: 'clamp(2.6rem, 5vw, 3.8rem)', marginTop: 8 }}>{PHASE_LABEL[phase] ?? '—'}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span className="chip chip-heat">Round {level}{gameState?.totalLevels ? `/${gameState.totalLevels}` : ''} · {gameState?.levelConfig?.name ?? '—'}{gameState?.levelConfig?.theme ? ` · ${gameState.levelConfig.theme}` : ''}</span>
+                <span className="chip chip-heat">Round {level}{gameState?.totalLevels ? `/${gameState.totalLevels}` : ''} · {gameState?.levelConfig?.name ?? '—'}</span>
                 <div className="display tabular" style={{ fontSize: '2.4rem', marginTop: 10 }}>
                   {questionNumber}<span className="faint" style={{ fontSize: '1.4rem' }}> / {total || '—'}</span>
                 </div>

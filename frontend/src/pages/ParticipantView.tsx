@@ -17,11 +17,11 @@ const storage = {
 
 const screenPad: CSSProperties = { width: '100%', maxWidth: 460, margin: '0 auto', padding: '0 20px' };
 
-// A themed phone screen: comic backdrop + content. Event theme outside levels, level theme inside.
-function Screen({ theme, children, style }: { theme: string; children: ReactNode; style?: CSSProperties }) {
+// A phone screen: paper backdrop (rays, halftone, rings) + content. Same look for every level.
+function Screen({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
-    <div className="stage" data-theme={theme} style={style}>
-      <ComicBg slashes={theme === 'pop'} />
+    <div className="stage" data-theme="mono" style={style}>
+      <ComicBg />
       {children}
     </div>
   );
@@ -195,7 +195,6 @@ export default function ParticipantView() {
     });
   };
 
-  const levelTheme = gameState?.levelConfig?.theme ?? 'blast';
   const center: CSSProperties = { ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 18 };
 
   // ─── Connecting ────────────────────────────────────────────────────────────
@@ -206,7 +205,7 @@ export default function ParticipantView() {
   // ─── Join ──────────────────────────────────────────────────────────────────
   if (!playerInfo) {
     return (
-      <Screen theme="blast">
+      <Screen>
         <header style={{ ...screenPad, paddingTop: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <VyuhamLogo height={46} />
           <span className="comic-badge light" style={{ fontSize: '0.8rem' }}>Vyuham '26</span>
@@ -275,11 +274,11 @@ export default function ParticipantView() {
   // ─── Lobby ─────────────────────────────────────────────────────────────────
   if (!gameState || gameState.state === 'lobby') {
     return (
-      <Screen theme="blast">
+      <Screen>
         <header style={{ ...screenPad, paddingTop: 18 }}><VyuhamLogo height={42} /></header>
         <main style={center}>
           <Rise><span className="comic-badge">You're in!</span></Rise>
-          <div className="pop"><Avatar id={playerInfo.avatar} size={150} style={{ border: '4px solid var(--t-ink)', boxShadow: '5px 5px 0 var(--t-ink)' }} /></div>
+          <div className="pop"><Avatar id={playerInfo.avatar} size={150} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} /></div>
           <Burst style={{ padding: '18px 30px 22px' }}>
             <h1 className="comic-title" style={{ fontSize: 'clamp(2.4rem, 13vw, 4rem)', overflowWrap: 'anywhere' }}>{playerInfo.name}</h1>
           </Burst>
@@ -296,7 +295,7 @@ export default function ParticipantView() {
     const exit = playerInfo.exit || {};
     const disqualified = playerInfo.status === 'disqualified';
     return (
-      <Screen theme={disqualified ? 'classic' : levelTheme}>
+      <Screen>
         <main style={center}>
           <Rise><span className="comic-badge">{disqualified ? 'Disqualified' : `Out after round ${exit.round ?? ''}`}</span></Rise>
           <Avatar id={playerInfo.avatar} size={110} style={{ filter: 'grayscale(0.6)', border: '3px solid var(--t-ink, #111)' }} />
@@ -322,7 +321,7 @@ export default function ParticipantView() {
   if (gameState.state === 'intro') {
     const config = gameState.levelConfig || {};
     return (
-      <Screen theme={levelTheme}>
+      <Screen>
         <main style={center}>
           <Rise><span className="comic-badge light">Round {gameState.currentLevel} of {gameState.totalLevels}</span></Rise>
           <Burst style={{ padding: '34px 30px 40px' }}>
@@ -342,7 +341,7 @@ export default function ParticipantView() {
     const q = gameState.currentQuestion;
     const timeUp = timeLeft <= 0;
     return (
-      <Screen theme={levelTheme}>
+      <Screen>
         <header style={{ ...screenPad, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, paddingBottom: 8 }}>
           <span className="comic-badge light" style={{ fontSize: '1.2rem' }}>
             Q{gameState.currentQuestionIndex + 1}<span style={{ opacity: 0.5 }}>/{gameState.totalQuestions}</span>
@@ -397,10 +396,10 @@ export default function ParticipantView() {
     const me = ranked[rank - 1];
     const medal = disqualified ? 'Disqualified' : rank === 1 ? 'Champion!' : rank === 2 ? 'Runner-up!' : rank === 3 ? 'Third place!' : 'Final standing';
     return (
-      <Screen theme="blast">
+      <Screen>
         <main style={center}>
           <Rise><span className="comic-badge">{medal}</span></Rise>
-          <Avatar id={playerInfo.avatar} size={120} style={{ border: '4px solid var(--t-ink)', boxShadow: '5px 5px 0 var(--t-ink)' }} />
+          <Avatar id={playerInfo.avatar} size={120} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} />
           {rank > 0 ? (
             <>
               <Burst style={{ padding: '24px 40px 30px' }}>
@@ -426,14 +425,14 @@ export default function ParticipantView() {
     const cutLabel = lastCut ? null : standing?.cutLabel;
     const safe = standing && cutLabel ? !standing.atRisk : null;
     return (
-      <Screen theme={levelTheme}>
+      <Screen>
         <main style={center}>
           <Burst style={{ padding: '26px 34px 30px' }}>
             <div style={{ textAlign: 'center' }}>
-              <div className="comic-title pop" style={{ fontSize: '4.2rem', color: notAnswered ? '#9ca3af' : isCorrect ? '#22c55e' : '#ef4444' }} aria-hidden="true">
+              <div className="comic-title pop" style={{ fontSize: '4.2rem', color: notAnswered ? '#8a8a8a' : isCorrect ? '#15803d' : '#b91c1c' }} aria-hidden="true">
                 {notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
               </div>
-              <h1 className="comic-title slam" style={{ fontSize: 'clamp(2.6rem, 14vw, 4rem)', color: notAnswered ? '#9ca3af' : isCorrect ? '#22c55e' : '#ef4444' }}>{headline}</h1>
+              <h1 className="comic-title slam" style={{ fontSize: 'clamp(2.6rem, 14vw, 4rem)', color: notAnswered ? '#8a8a8a' : isCorrect ? '#15803d' : '#b91c1c' }}>{headline}</h1>
             </div>
           </Burst>
 

@@ -11,7 +11,7 @@ type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
 // Levels (rounds) are set up by the quiz master and played in this order.
 interface Cut { rule: 'top' | 'percent' | 'min_score' | 'bottom' | 'min_correct'; value: number; ties: 'speed' | 'include' }
-interface Level { number: number; name: string; multiplier: number; cut: Cut | null; theme: string | null }
+interface Level { number: number; name: string; multiplier: number; cut: Cut | null }
 
 // Who goes on to the next level when this one ends. The coordinator confirms every cut.
 const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
@@ -22,14 +22,6 @@ const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
   { id: 'min_correct', label: 'Minimum correct answers in this level', unit: 'correct' },
 ];
 
-// Looks for the projector and phones during a level (see comic.css).
-const THEMES: { id: string; label: string; swatch: string }[] = [
-  { id: 'blast', label: 'Blast — yellow comic burst', swatch: '#ffc21a' },
-  { id: 'pop', label: 'Pop — yellow & pink pop art', swatch: '#ff4fa8' },
-  { id: 'arcade', label: 'Arcade — lime game burst', swatch: '#a6d91a' },
-  { id: 'circuit', label: 'Circuit — blue tech windows', swatch: '#93b8ff' },
-  { id: 'classic', label: 'Classic — plain white', swatch: '#ffffff' },
-];
 const blank = (level: number): Draft => ({
   level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null,
 });
@@ -496,10 +488,9 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
   const [rule, setRule] = useState<string>(level.cut?.rule ?? '');
   const [value, setValue] = useState(level.cut ? String(level.cut.value) : '');
   const [ties, setTies] = useState<Cut['ties']>(level.cut?.ties ?? 'speed');
-  const [theme, setTheme] = useState(level.theme ?? '');
   const cut = rule ? { rule, value: Number(value), ties } : null;
   const cutChanged = JSON.stringify(cut) !== JSON.stringify(level.cut ? { rule: level.cut.rule, value: level.cut.value, ties: level.cut.ties } : null);
-  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || cutChanged || (theme || null) !== level.theme;
+  const dirty = name.trim() !== level.name || Number(multiplier) !== level.multiplier || cutChanged;
   const valueOk = !rule || (value.trim() !== '' && Number(value) >= (rule === 'min_score' ? 0 : 1)
     && (rule !== 'percent' || Number(value) <= 100) && (['min_score', 'percent'].includes(rule) || Number.isInteger(Number(value))));
   const valid = name.trim().length > 0 && Number(multiplier) > 0 && Number(multiplier) <= 10 && valueOk;
@@ -508,7 +499,7 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
   const save = (e: React.FormEvent) => {
     e.preventDefault();
     guard(async () => {
-      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), cut, theme: theme || null } });
+      await api(`/levels/${level.number}`, { method: 'PUT', body: { name: name.trim(), multiplier: Number(multiplier), cut } });
       onChanged();
     });
   };
@@ -552,16 +543,6 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
             </div>
           </>
         )}
-        <div className="form-row" style={{ flex: '1 1 220px' }}>
-          <label className="eyebrow" htmlFor="lvl-theme">Look on screen</label>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <span aria-hidden="true" style={{ width: 30, height: 30, borderRadius: 8, flexShrink: 0, border: '2px solid #111', background: THEMES.find(t => t.id === theme)?.swatch ?? 'repeating-linear-gradient(45deg, #ffc21a 0 6px, #ff4fa8 6px 12px, #a6d91a 12px 18px, #93b8ff 18px 24px)' }} />
-            <select id="lvl-theme" className="field field-sm" value={theme} onChange={e => setTheme(e.target.value)}>
-              <option value="">Automatic (changes every round)</option>
-              {THEMES.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
-          </div>
-        </div>
         <button className="btn btn-ghost btn-sm" disabled={!dirty || !valid}>Save level</button>
         <button type="button" className="btn btn-danger btn-sm" onClick={remove} disabled={questionCount > 0}
           title={questionCount > 0 ? 'Move or delete its questions first' : undefined}>Delete level</button>

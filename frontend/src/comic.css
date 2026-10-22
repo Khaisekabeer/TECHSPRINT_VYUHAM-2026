@@ -1,230 +1,142 @@
 /* ════════════════════════════════════════════════════════════════════════════
-   Comic game themes for the projector and phones (admin pages stay clean).
-   A stage opts in with data-theme="blast | pop | arcade | circuit"; each level
-   of the quiz can use a different one. Ingredients: sunburst rays, halftone
-   dots, starburst bubbles, thick ink outlines and hard offset shadows.
+   Projector and phone stages: monochrome "ink on paper".
+   Off-white paper, near-black ink, soft grey gradients. The abstract layer stays
+   quiet: concentric rings, faint sunburst rays, halftone dots in two corners,
+   and a thin starburst outline behind big titles. Colour is kept for meaning
+   only (A–D answers, right/wrong). Admin pages use the plain white UI.
+   Class names (comic-*) are the stage's building blocks; every level looks the same.
    ════════════════════════════════════════════════════════════════════════════ */
 
-:root {
-  --font-comic: 'Luckiest Guy', 'Big Shoulders Display', Impact, sans-serif;
-  --comic-ink: #111111;
-}
-
-/* ─── Theme palettes ───────────────────────────────────────────────────────── */
 .stage[data-theme] {
-  --t-ink: var(--comic-ink);
+  --t-bg: #f6f5f2;          /* paper */
+  --t-bg-deep: #e9e8e3;     /* paper, gradient edge */
+  --t-ray: rgba(10, 10, 10, 0.035);
+  --t-dots: rgba(10, 10, 10, 0.11);
+  --t-ink: #0a0a0a;
+  --t-title: #0a0a0a;
+  --t-accent: #0a0a0a;
   --t-panel: #ffffff;
-  --t-text: #111111;
-  --t-text-dim: rgba(17, 17, 17, 0.72);
+  --t-text: #0a0a0a;
+  --t-text-dim: #5c5c5c;
+  --t-first: linear-gradient(135deg, #0a0a0a, #3a3a3a);
+  --t-first-text: #ffffff;
   --heat: var(--t-ink);
-  --line: rgba(17, 17, 17, 0.14);
-  --line-strong: rgba(17, 17, 17, 0.4);
+  --line: rgba(10, 10, 10, 0.09);
+  --line-strong: rgba(10, 10, 10, 0.2);
   --bone: var(--t-text);
   --bone-dim: var(--t-text-dim);
-  --bone-faint: rgba(17, 17, 17, 0.45);
+  --bone-faint: #a3a3a3;
+  --ring: #cfcdc7;
   color: var(--t-text);
   background: var(--t-bg);
 }
-/* Yellow sunburst, orange outlined titles. */
-.stage[data-theme='blast'] {
-  --t-bg: #ffc21a; --t-ray: #ffd54d; --t-dots: rgba(17, 17, 17, 0.55);
-  --t-title: #ffb000; --t-accent: #ff4d6d; --t-accent-2: #1fb5ff;
-  --t-first: #ffb000; --t-first-text: #111;
-}
-/* Yellow with pink halftone corners, cyan titles. */
-.stage[data-theme='pop'] {
-  --t-bg: #ffe14d; --t-ray: #fff08a; --t-dots: #ff4fa8;
-  --t-title: #35d6e0; --t-accent: #ff4fa8; --t-accent-2: #9b5cf6;
-  --t-first: #35d6e0; --t-first-text: #111;
-}
-/* Lime burst, orange titles, red-orange badges. */
-.stage[data-theme='arcade'] {
-  --t-bg: #a6d91a; --t-ray: #b9e43d; --t-dots: rgba(17, 17, 17, 0.4);
-  --t-title: #ffb21a; --t-accent: #ff4a2e; --t-accent-2: #ffffff;
-  --t-first: #ffb21a; --t-first-text: #111;
-}
-/* Plain white (the original look), for a calm round. */
-.stage[data-theme='classic'] {
-  --t-bg: #ffffff; --t-ray: #f6f6f6; --t-dots: rgba(17, 17, 17, 0.12);
-  --t-title: #111111; --t-accent: #111111; --t-accent-2: #737373;
-  --t-first: #111111; --t-first-text: #fff;
-}
-.stage[data-theme='classic'] .comic-title { color: #fff; }
-/* Pale blue tech grid, navy titles, window panels. */
-.stage[data-theme='circuit'] {
-  --t-bg: #e3eeff; --t-ray: #f4f8ff; --t-dots: rgba(29, 78, 216, 0.35);
-  --t-title: #1e40af; --t-accent: #2563eb; --t-accent-2: #60a5fa;
-  --t-first: #2563eb; --t-first-text: #fff;
-  --t-ink: #1e3a8a;
-  --t-text: #172554;
-  --t-text-dim: rgba(23, 37, 84, 0.72);
-}
 
-/* ─── Backdrop: rays + halftone (one element behind the content) ───────────── */
+/* ─── Backdrop: paper gradient, faint rays, halftone corners (behind the content) ─ */
 .comic-bg {
   position: absolute;
   inset: 0;
   z-index: -2;
   pointer-events: none;
   overflow: hidden;
-  background: var(--t-bg);
+  background: radial-gradient(ellipse at 50% 35%, #fdfdfc 0%, var(--t-bg) 45%, var(--t-bg-deep) 100%);
 }
-.comic-bg::before { /* sunburst */
+.comic-bg::before { /* soft sunburst */
   content: '';
   position: absolute;
   inset: -50%;
-  background: repeating-conic-gradient(from 0deg at 50% 50%, var(--t-ray) 0deg 6deg, transparent 6deg 15deg);
-  animation: spin 240s linear infinite;
+  background: repeating-conic-gradient(from 0deg at 50% 50%, var(--t-ray) 0deg 5deg, transparent 5deg 15deg);
+  mask-image: radial-gradient(circle at 50% 50%, black 0%, transparent 60%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 0%, transparent 60%);
+  animation: spin 300s linear infinite;
 }
-.comic-bg::after { /* halftone in two corners */
+.comic-bg::after { /* halftone fading in from two corners */
   content: '';
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle, var(--t-dots) 32%, transparent 36%) 0 0 / 16px 16px;
+  background: radial-gradient(circle, var(--t-dots) 30%, transparent 34%) 0 0 / 14px 14px;
   mask-image:
-    radial-gradient(circle at 0% 100%, black 0, transparent 34%),
-    radial-gradient(circle at 100% 0%, black 0, transparent 30%);
+    radial-gradient(circle at 0% 100%, black 0, transparent 30%),
+    radial-gradient(circle at 100% 0%, black 0, transparent 26%);
   -webkit-mask-image:
-    radial-gradient(circle at 0% 100%, black 0, transparent 34%),
-    radial-gradient(circle at 100% 0%, black 0, transparent 30%);
+    radial-gradient(circle at 0% 100%, black 0, transparent 30%),
+    radial-gradient(circle at 100% 0%, black 0, transparent 26%);
 }
-.stage[data-theme='pop'] .comic-bg::after {
-  mask-image:
-    radial-gradient(circle at 0% 100%, black 0, transparent 42%),
-    radial-gradient(circle at 100% 0%, black 0, transparent 42%);
-  -webkit-mask-image:
-    radial-gradient(circle at 0% 100%, black 0, transparent 42%),
-    radial-gradient(circle at 100% 0%, black 0, transparent 42%);
-}
-/* Circuit: a calm grid instead of rays. */
-.stage[data-theme='circuit'] .comic-bg {
-  background:
-    linear-gradient(rgba(37, 99, 235, 0.08) 1px, transparent 1px) 0 0 / 40px 40px,
-    linear-gradient(90deg, rgba(37, 99, 235, 0.08) 1px, transparent 1px) 0 0 / 40px 40px,
-    radial-gradient(ellipse at 30% 20%, #ffffff 0, var(--t-bg) 70%);
-}
-.stage[data-theme='circuit'] .comic-bg::before { display: none; }
-
-/* Pop-art diagonal corner slashes (decoration, Pop theme). */
-.comic-slash {
-  position: absolute;
-  z-index: -1;
-  pointer-events: none;
-  width: 34vmax;
-  height: 34vmax;
-  background: var(--t-accent);
-  border: 6px solid var(--t-ink);
-  transform: rotate(45deg);
-}
+.stage[data-theme] .rings { color: var(--ring); opacity: 0.7; }
 
 /* ─── Type ─────────────────────────────────────────────────────────────────── */
 .comic-title {
-  font-family: var(--font-comic);
-  font-weight: 400;
+  font-family: var(--font-display);
+  font-weight: 900;
   text-transform: uppercase;
-  line-height: 0.92;
-  letter-spacing: 0.01em;
-  color: var(--t-title, #ffb000);
-  -webkit-text-stroke: 0.06em var(--t-ink, #111);
-  paint-order: stroke fill;
-  text-shadow: 0.07em 0.07em 0 var(--t-ink, #111);
+  line-height: 0.88;
+  letter-spacing: -0.01em;
+  color: var(--t-title);
   margin: 0;
 }
-.stage[data-theme='circuit'] .comic-title { -webkit-text-stroke: 0; text-shadow: 0.05em 0.05em 0 var(--t-accent-2); }
-.comic-text { font-family: var(--font-comic); font-weight: 400; letter-spacing: 0.02em; }
+.comic-text {
+  font-family: var(--font-display);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
 
 /* ─── Surfaces ─────────────────────────────────────────────────────────────── */
 .comic-panel {
   position: relative;
-  background: var(--t-panel, #fff);
-  border: 3px solid var(--t-ink, #111);
-  border-radius: 16px;
-  box-shadow: 6px 6px 0 var(--t-ink, #111);
-  color: #111;
-}
-.stage[data-theme='circuit'] .comic-panel { color: var(--t-text); }
-/* Circuit: panels look like an app window (title bar + close button). */
-.stage[data-theme='circuit'] .comic-panel.window { padding-top: calc(var(--win-bar, 34px) + 14px); }
-.stage[data-theme='circuit'] .comic-panel.window::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: var(--win-bar, 34px);
-  background: #bfd6ff;
-  border-bottom: 3px solid var(--t-ink);
-  border-radius: 13px 13px 0 0;
-}
-.stage[data-theme='circuit'] .comic-panel.window::after {
-  content: '×';
-  position: absolute;
-  top: 0;
-  right: 14px;
-  height: var(--win-bar, 34px);
-  display: flex;
-  align-items: center;
-  color: var(--t-ink);
-  font-size: 1.4rem;
-  font-weight: 700;
+  background: var(--t-panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+  color: var(--t-text);
 }
 
 .comic-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0.35em 0.9em;
-  background: var(--t-accent, #ff4d6d);
+  padding: 0.5em 1em;
+  background: var(--t-ink);
   color: #fff;
-  border: 3px solid var(--t-ink, #111);
+  border: 1px solid var(--t-ink);
   border-radius: 999px;
-  box-shadow: 3px 3px 0 var(--t-ink, #111);
-  font-family: var(--font-comic);
-  letter-spacing: 0.04em;
+  font-family: var(--font-mono);
+  font-size: 0.72em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.comic-badge.light { background: #fff; color: #111; }
+.comic-badge.light { background: rgba(255, 255, 255, 0.85); color: var(--t-ink); border-color: var(--line-strong); box-shadow: var(--shadow-sm); }
 
-/* Starburst bubble behind a title (see <Burst />). */
+/* Starburst behind a title (see <Burst />): thin grey outline on paper. */
 .burst { position: relative; display: inline-grid; place-items: center; isolation: isolate; }
 .burst > svg { position: absolute; inset: -18% -14%; width: 128%; height: 136%; z-index: -1; overflow: visible; }
-.burst > svg polygon { fill: #fff; stroke: var(--t-ink, #111); stroke-width: 6; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
-.burst > svg .burst-dots { fill: var(--t-dots, rgba(0, 0, 0, 0.5)); }
-.stage[data-theme='circuit'] .burst > svg polygon { fill: #f8fbff; }
+.burst > svg polygon { fill: rgba(255, 255, 255, 0.75); stroke: rgba(10, 10, 10, 0.28); stroke-width: 1.5; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.burst > svg .burst-dots { fill: var(--t-dots); }
 
-/* ─── Options & answers on themed stages ──────────────────────────────────── */
-.stage[data-theme] .opt-btn,
+/* ─── Options & answers on stages ─────────────────────────────────────────── */
 .stage[data-theme] .opt-tile {
-  border: 3px solid var(--t-ink);
-  border-radius: 14px;
-  box-shadow: 4px 4px 0 var(--t-ink);
   background: #fff;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
 }
-.stage[data-theme] .opt-btn .opt-label { border-right: 3px solid var(--t-ink); font-family: var(--font-comic); font-weight: 400; }
-.stage[data-theme] .opt-btn.selected { box-shadow: 0 0 0 4px #fff, 6px 6px 0 var(--t-ink); }
-.stage[data-theme] .opt-btn.faded { opacity: 0.35; box-shadow: none; }
-.stage[data-theme] .opt-btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--t-ink); }
-.stage[data-theme] .chip { border: 2px solid var(--t-ink); box-shadow: 2px 2px 0 var(--t-ink); background: #fff; color: #111; }
-.stage[data-theme] .eyebrow { color: var(--t-text-dim); font-weight: 600; }
-.stage[data-theme] .btn-heat { background: var(--t-accent); color: #fff; border: 3px solid var(--t-ink); box-shadow: 4px 4px 0 var(--t-ink); font-family: var(--font-comic); font-weight: 400; letter-spacing: 0.06em; font-size: 1.05rem; }
-.stage[data-theme] .btn-heat:hover:not(:disabled) { background: var(--t-accent); filter: brightness(1.05); box-shadow: 6px 6px 0 var(--t-ink); }
-.stage[data-theme] .btn-heat:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: 2px 2px 0 var(--t-ink); }
-.stage[data-theme] .field { border: 3px solid var(--t-ink); box-shadow: 3px 3px 0 var(--t-ink); border-radius: 12px; }
-.stage[data-theme] .timer .track { stroke: rgba(255, 255, 255, 0.7); }
+.stage[data-theme] .chip { background: #fff; }
+.stage[data-theme] .eyebrow { color: var(--t-text-dim); }
+.stage[data-theme] .timer .track { stroke: var(--line); }
 .stage[data-theme] .timer .bar { stroke: var(--t-ink); }
-.stage[data-theme] .timer .count { font-family: var(--font-comic); font-weight: 400; }
-.stage[data-theme] .timer-disc { background: #fff; border: 3px solid var(--t-ink); border-radius: 50%; box-shadow: 4px 4px 0 var(--t-ink); }
+.stage[data-theme] .timer-disc { background: #fff; border: 1px solid var(--line); border-radius: 50%; box-shadow: var(--shadow-md); }
 
-/* Question picture: framed like a comic panel. */
+/* Question picture */
 .q-image {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #fff;
-  border: 3px solid var(--t-ink, #111);
-  border-radius: 14px;
-  box-shadow: 6px 6px 0 var(--t-ink, #111);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
 }
 
 /* ─── Avatars ──────────────────────────────────────────────────────────────── */
@@ -232,30 +144,30 @@
   flex-shrink: 0;
   border-radius: 50%;
   background: #fff;
-  border: 2px solid var(--t-ink, #111);
+  border: 1px solid var(--line-strong);
   overflow: hidden;
 }
-.avatar img { display: block; width: 100%; height: 100%; }
+.avatar img { display: block; width: 100%; height: 100%; filter: saturate(0.9); }
 .avatar-pick {
   padding: 0;
-  border: 3px solid transparent;
+  border: 2px solid transparent;
   border-radius: 50%;
   background: none;
   cursor: pointer;
   transition: transform 0.15s var(--ease-out), border-color 0.15s;
 }
 .avatar-pick:hover { transform: scale(1.06); }
-.avatar-pick.picked { border-color: var(--t-ink, #111); transform: scale(1.1); box-shadow: 3px 3px 0 var(--t-ink, #111); }
+.avatar-pick.picked { border-color: var(--t-ink, #0a0a0a); transform: scale(1.1); box-shadow: var(--shadow-md); }
 
 /* ─── Standings (projector): layout adapts to how many are still in ───────── */
 .standings { display: grid; width: 100%; height: 100%; min-height: 0; }
 /* Crowd (30+): compact tiles in a dense grid, filled column by column. */
 .standings.crowd { grid-auto-flow: column; gap: 0.6vh 0.7vw; }
-.standings.crowd .st-row { padding: 0.35vh 0.5vw; gap: 0.5vw; border-width: 2px; box-shadow: 2px 2px 0 var(--t-ink, #111); border-radius: 10px; }
+.standings.crowd .st-row { padding: 0.35vh 0.5vw; gap: 0.5vw; border-radius: 8px; }
 .standings.crowd .st-rank { font-size: clamp(0.8rem, 1.1vw, 1.2rem); width: 2.2em; }
 .standings.crowd .st-name { font-size: clamp(0.75rem, 1vw, 1.1rem); }
-.standings.crowd .st-score { font-size: clamp(0.7rem, 0.9vw, 1rem); opacity: 0.75; }
-.st-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.1; }
+.standings.crowd .st-score { font-size: clamp(0.7rem, 0.9vw, 1rem); opacity: 0.7; }
+.st-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
 /* Pack (11–30): rows in 2–3 columns. */
 .standings.pack { grid-auto-flow: column; gap: 0.9vh 1.2vw; }
 .standings.pack .st-row { padding: 0.6vh 0.9vw; gap: 0.9vw; }
@@ -264,7 +176,7 @@
 .standings.pack .st-score { font-size: clamp(1rem, 1.6vw, 1.8rem); }
 /* Finalists (≤10): big character cards. */
 .standings.finalists { grid-auto-flow: column; gap: 1.6vh 1.6vw; }
-.standings.finalists .st-row { padding: 1.2vh 1.4vw; gap: 1.3vw; border-radius: 18px; box-shadow: 6px 6px 0 var(--t-ink, #111); }
+.standings.finalists .st-row { padding: 1.2vh 1.4vw; gap: 1.3vw; box-shadow: var(--shadow-lg); }
 .standings.finalists .st-rank { font-size: clamp(1.8rem, 3vw, 3.4rem); width: 1.6em; }
 .standings.finalists .st-name { font-size: clamp(1.4rem, 2.4vw, 2.8rem); }
 .standings.finalists .st-score { font-size: clamp(1.4rem, 2.4vw, 2.8rem); }
@@ -274,23 +186,25 @@
   align-items: center;
   min-width: 0;
   background: #fff;
-  color: #111;
-  border: 3px solid var(--t-ink, #111);
-  border-radius: 12px;
-  box-shadow: 3px 3px 0 var(--t-ink, #111);
+  color: #0a0a0a;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
 }
-.st-rank { font-family: var(--font-comic); text-align: center; flex-shrink: 0; line-height: 1; }
-.st-name { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-score { font-family: var(--font-comic); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.st-row.first { background: var(--t-first, #ffb000); color: var(--t-first-text, #111); }
-.st-row.podium { background: #fff7d6; }
-/* Below the cut: at risk of elimination when this level ends. */
-.st-row.danger { background: #ffe1e1; border-style: dashed; opacity: 0.85; }
+.st-rank { font-family: var(--font-display); font-weight: 900; text-align: center; flex-shrink: 0; line-height: 1; }
+.st-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-score { font-family: var(--font-display); font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.st-row.first { background: var(--t-first, #0a0a0a); color: var(--t-first-text, #fff); border-color: transparent; box-shadow: var(--shadow-lg); }
+.st-row.first .avatar { border-color: rgba(255, 255, 255, 0.5); }
+.st-row.podium { background: linear-gradient(135deg, #ffffff, #efeee9); }
+/* Below the cut line: at risk of elimination when this level ends. */
+.st-row.danger { background: #f1f0ec; border: 1px dashed rgba(10, 10, 10, 0.3); color: #6b6b6b; box-shadow: none; }
 .st-row.offline { opacity: 0.55; }
 /* Rank change since the last question. */
-.st-delta { flex-shrink: 0; font-family: var(--font-comic); font-size: 0.8em; padding: 0 0.35em; border-radius: 6px; animation: pop 0.5s var(--ease-out) backwards; }
+.st-delta { flex-shrink: 0; font-family: var(--font-mono); font-weight: 600; font-size: 0.7em; padding: 0.1em 0.4em; border-radius: 6px; animation: pop 0.5s var(--ease-out) backwards; }
 .st-delta.up { color: #15803d; background: #dcfce7; }
 .st-delta.down { color: #b91c1c; background: #fee2e2; }
+.st-row.first .st-delta.up { color: #bbf7d0; background: rgba(255, 255, 255, 0.12); }
 .st-stack .st-delta { margin-left: 0.4em; font-size: 0.85em; }
 
 @media (prefers-reduced-motion: reduce) {
