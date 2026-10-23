@@ -1,13 +1,15 @@
 // Staff REST API. Roles:
 //   admin        management: participants (MakeMyPass CSV), staff, check-in, settings, results
-//   quizmaster   encrypted question bank (behind a second PIN); loads questions into the game
-//   coordinator  conducts the live event (host console, via Socket.IO)
+//   quizmaster   builds the question sets; each set is encrypted and opened with its own PIN
+//   coordinator  conducts the live event; loads a question set by entering its PIN
 //   volunteer    pass check-in and live monitoring
+const crypto = require('crypto');
 const express = require('express');
 const auth = require('./auth');
 const store = require('./store');
 const vault = require('./vault');
 const questionKeys = require('./questionKeys');
+const mail = require('./mail');
 
 const { requireStaff, requireVault } = auth;
 const ADMIN = 'admin';
@@ -15,9 +17,13 @@ const COORD = 'coordinator';
 const QM = 'quizmaster';
 const VOL = 'volunteer';
 const ROLES = [ADMIN, QM, COORD, VOL];
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const THEMES = ['blast', 'pop', 'arcade', 'circuit', 'classic'];
+const CUT_RULES = ['top', 'percent', 'min_score', 'bottom', 'min_correct'];
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 const USERNAME_RE = /^[a-zA-Z0-9._@+-]{3,64}$/; // plain usernames or email addresses
-const PIN_RE = /^\d{4,8}$/;
 
 // Wrap async handlers: validation errors → 400, anything else → 500 (logged).
 class BadRequest extends Error {}
@@ -51,14 +57,17 @@ function validateQuestion(body) {
   check(options.includes(correctAnswer), 'Pick the correct answer from the options');
   check(timeLimit >= 5 && timeLimit <= 300, 'Timer must be between 5 and 300 seconds');
   check(points >= 100 && points <= 10000, 'Points must be between 100 and 10000');
-  return { level, type, text, options, correctAnswer, timeLimit, points, isActive: body.isActive !== false };
+  // Optional picture for "identify this person / object" questions (uploaded separately, encrypted).
+  const imageId = body.imageId == null || body.imageId === '' ? null : String(body.imageId);
+  check(imageId === null || UUID_RE.test(imageId), 'Invalid image');
+  return { level, type, text, options, correctAnswer, timeLimit, points, imageId, isActive: body.isActive !== false };
 }
 
 /**
  * Hooks connect the API to the live game, either in the same process or on another machine
  * (see app.js localHooks / remoteHooks). All are async.
- * @param hooks.onQuestionsChanged(dek)            refresh already-loaded game questions (lobby only)
- * @param hooks.loadQuestionsIntoGame(dek, staff)  decrypt active questions into the game
+ * @param hooks.onQuestionsChanged(dek, bankId)     refresh already-loaded game questions (lobby only)
+ * @param hooks.loadQuestionsIntoGame(dek, staff, bank)  decrypt a set's active questions into the game
  * @param hooks.gameStatus()                       { online, state, count, by, players }
  * @param hooks.onSettingsChanged(settings)        push new settings to the game server
  */
@@ -84,67 +93,211 @@ module.exports = function createApi(hooks) {
     res.json({ token, staff: { id: row.id, username: row.username, displayName: row.display_name, role: row.role } });
   }));
 
-  api.get('/auth/me', requireStaff(), (req, res) => {
-    res.json({ staff: req.session.staff, vaultUntil: auth.vaultOpen(req.session) ? req.session.vaultUntil : null });
-  });
 
   api.post('/auth/logout', requireStaff(), route(async (req, res) => {
     await auth.endSession(req.session.tokenHash);
     res.json({ success: true });
   }));
 
-  // Quiz master's second factor: the PIN unlocks the encryption key of the question bank.
-  async function checkPin(req, res) {
-    const key = `pin:${req.session.staff.id}`;
-    if (auth.isLockedOut(key)) {
-      res.status(429).json({ error: 'Too many wrong PINs. Wait 5 minutes.' });
+  // ─── Password reset via email OTP ──────────────────────────────────────────
+  api.post('/auth/forgot-password', small, route(async (req, res) => {
+    const ipKey = `forgot:${req.ip}`;
+    if (auth.isLockedOut(ipKey)) return res.status(429).json({ error: 'Too many reset requests. Wait a few minutes.' });
+
+    const emailOrUsername = str(req.body?.email || req.body?.username, 160).toLowerCase();
+    check(emailOrUsername, 'Enter your registered email address or username');
+
+    const staff = await store.findStaffForLogin(emailOrUsername);
+    if (!staff || !staff.active) {
+      return res.json({ success: true, message: 'If an active account exists with that email, a verification code has been sent.' });
+    }
+
+    const targetEmail = staff.username.includes('@') ? staff.username : null;
+    if (!targetEmail) {
+      return res.status(400).json({ error: 'This account does not have an email address associated with it. Contact an administrator to reset your password.' });
+    }
+
+    const otp = String(crypto.randomInt(100000, 1000000));
+    const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
+    const expiresAt = Date.now() + 15 * 60 * 1000;
+
+    await store.setSetting(`otp:${staff.id}`, {
+      otpHash,
+      email: targetEmail,
+      expiresAt,
+      attempts: 0,
+    });
+
+    try {
+      await mail.sendPasswordResetOtp(targetEmail, otp, staff.display_name);
+      auth.recordFailure(ipKey, 5, 15 * 60 * 1000);
+      res.json({ success: true, staffId: staff.id, email: targetEmail, message: 'Verification code sent to your email.' });
+    } catch (err) {
+      console.error('[forgot-password]', err.message);
+      res.status(500).json({ error: 'Could not send verification email right now. Please try again later or contact admin.' });
+    }
+  }));
+
+  api.post('/auth/reset-password', small, route(async (req, res) => {
+    const emailOrUsername = str(req.body?.email || req.body?.username, 160).toLowerCase();
+    const otp = str(String(req.body?.otp ?? ''), 10).trim();
+    const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+
+    check(emailOrUsername, 'Username or email is required');
+    check(otp.length === 6, 'Verification code must be 6 digits');
+    check(newPassword.length >= 8, 'New password must be at least 8 characters');
+
+    const staff = await store.findStaffForLogin(emailOrUsername);
+    if (!staff || !staff.active) {
+      return res.status(400).json({ error: 'Invalid reset request' });
+    }
+
+    const record = await store.getSetting(`otp:${staff.id}`);
+    if (!record || !record.expiresAt || Date.now() > record.expiresAt) {
+      return res.status(400).json({ error: 'Verification code has expired. Please request a new code.' });
+    }
+
+    if (record.attempts >= 5) {
+      await store.deleteSetting(`otp:${staff.id}`);
+      return res.status(429).json({ error: 'Too many failed attempts. Please request a new code.' });
+    }
+
+    const givenHash = crypto.createHash('sha256').update(otp).digest('hex');
+    if (givenHash !== record.otpHash) {
+      record.attempts = (record.attempts || 0) + 1;
+      await store.setSetting(`otp:${staff.id}`, record);
+      return res.status(400).json({ error: 'Invalid verification code' });
+    }
+
+    await store.updateStaff(staff.id, { password_hash: await auth.hashSecret(newPassword) });
+    await store.deleteSetting(`otp:${staff.id}`);
+    await store.endStaffSessions(staff.id);
+
+    res.json({ success: true, message: 'Password has been reset successfully. You can now sign in.' });
+  }));
+
+  // ─── Question sets ("Main set", "Trial set", ...), each opened with its own PIN ──
+  // Wrong PINs are limited per person and set (5 per 5 minutes) and per set overall (30 per 15
+  // minutes), so a set PIN can't be guessed by trying many accounts.
+  function pinLimited(req, res, bankId) {
+    const keys = [[`setpin:${bankId}:${req.session.staff.id}`, 5, 5 * 60 * 1000], [`setpin:${bankId}`, 30, 15 * 60 * 1000]];
+    if (keys.some(([key]) => auth.isLockedOut(key))) {
+      res.status(429).json({ error: 'Too many wrong PINs for this set. Wait a few minutes.' });
+
       return null;
     }
-    const row = await store.getStaffRow(req.session.staff.id);
-    const pin = String(req.body?.pin ?? '');
-    if (!(await auth.verifySecret(pin, row?.pin_hash))) {
-      auth.recordFailure(key, 5, 5 * 60 * 1000);
-      res.status(401).json({ error: 'Wrong PIN' });
-      return null;
-    }
-    auth.clearFailures(key);
-    return { row, pin };
+    return {
+      fail: () => keys.forEach(([key, max, ms]) => auth.recordFailure(key, max, ms)),
+      ok: () => auth.clearFailures(keys[0][0]),
+    };
   }
 
-  function vaultFailure(res, err) {
+  function vaultFailure(res, err, limiter) {
     if (err instanceof vault.VaultError) {
-      const status = err.code === 'NEEDS_GRANT' ? 409 : err.code === 'BAD_RECOVERY' ? 401 : err.code === 'NO_SECRET' ? 500 : 400;
+      if (['BAD_PIN', 'BAD_RECOVERY'].includes(err.code)) limiter?.fail();
+      // 403, not 401: a wrong set PIN must not look like an expired sign-in (that signs people out).
+      const status = { BAD_PIN: 403, BAD_RECOVERY: 403, NOT_FOUND: 404, NO_SECRET: 500 }[err.code] ?? 400;
       if (err.code === 'NO_SECRET') console.error('[vault]', err.message);
-      return res.status(status).json({ error: err.code === 'NO_SECRET' ? 'Question encryption is not configured on the server' : err.message, needsGrant: err.code === 'NEEDS_GRANT' });
+      return res.status(status).json({ error: err.code === 'NO_SECRET' ? 'Question encryption is not configured on the server' : err.message, code: err.code });
     }
     throw err;
   }
 
-  async function openVault(req, dek) {
-    const vaultUntil = await auth.unlockVault(req.session, dek);
-    await questionKeys.afterUnlock(dek, req.session.staff.id);
-    return vaultUntil;
+  // Open a set in this session (one at a time) and tidy it up.
+  async function openSet(req, bank, dek) {
+    const vaultUntil = await auth.unlockVault(req.session, dek, bank.id);
+    await questionKeys.afterOpen(bank.id, dek);
+    return { vaultUntil, bank: { id: bank.id, name: bank.name } };
   }
 
-  api.post('/auth/vault', small, requireStaff(QM), route(async (req, res) => {
-    const ok = await checkPin(req, res);
-    if (!ok) return;
+  const bankName = v => str(v, 60);
+  const isUuid = v => typeof v === 'string' && UUID_RE.test(v);
+
+  api.get('/auth/me', requireStaff(), route(async (req, res) => {
+    const open = auth.vaultOpen(req.session);
+    const bank = open ? await store.getBank(req.session.bankId) : null;
+    res.json({ staff: req.session.staff, vaultUntil: open ? req.session.vaultUntil : null, vaultBank: bank && { id: bank.id, name: bank.name } });
+  }));
+
+  // Names and counts only (never questions): quiz masters manage sets, the coordinator picks one to load.
+  api.get('/banks', requireStaff(QM, COORD, ADMIN), route(async (req, res) => {
+    res.json(await store.listBanks());
+  }));
+
+  // New set: the quiz master names it and chooses its PIN. The recovery code is shown once.
+  api.post('/banks', small, requireStaff(QM), route(async (req, res) => {
+    const name = bankName(req.body?.name);
+    check(name, 'Give the set a name, e.g. "Main set"');
+    check((await store.listBanks()).length < 20, 'At most 20 question sets');
     try {
-      const { dek, recoveryCode } = await questionKeys.unlock(ok.row, ok.pin);
-      res.json({ vaultUntil: await openVault(req, dek), recoveryCode });
+      const { bank, dek, recoveryCode } = await questionKeys.createBank(name, req.body?.pin, req.session.staff.id);
+      // Start it with one level so questions can be added straight away.
+      await store.createLevel(bank.id, { name: 'Round 1', multiplier: 1 });
+      res.status(201).json({ ...(await openSet(req, bank, dek)), recoveryCode });
     } catch (err) {
       vaultFailure(res, err);
     }
   }));
 
-  api.post('/auth/vault/recover', small, requireStaff(QM), route(async (req, res) => {
-    const ok = await checkPin(req, res);
-    if (!ok) return;
+  api.post('/banks/:id/open', small, requireStaff(QM), route(async (req, res) => {
+    check(isUuid(req.params.id), 'Invalid set');
+    const limiter = pinLimited(req, res, req.params.id);
+    if (!limiter) return;
     try {
-      const dek = await questionKeys.recover(ok.row, ok.pin, String(req.body?.recoveryCode ?? ''));
-      res.json({ vaultUntil: await openVault(req, dek) });
+      const { bank, dek } = await questionKeys.openBank(req.params.id, req.body?.pin);
+      limiter.ok();
+      res.json(await openSet(req, bank, dek));
     } catch (err) {
-      vaultFailure(res, err);
+      vaultFailure(res, err, limiter);
+    }
+  }));
+
+  // First PIN for a set that has none (the old single bank, moved into a set). Its questions are
+  // already encrypted, so the old quiz master PIN of this account (or the old recovery code) is
+  // needed once to carry the key over.
+  api.post('/banks/:id/setup', small, requireStaff(QM), route(async (req, res) => {
+    check(isUuid(req.params.id), 'Invalid set');
+    const limiter = pinLimited(req, res, req.params.id);
+    if (!limiter) return;
+    try {
+      const staffRow = await store.getStaffRow(req.session.staff.id);
+      const { bank, dek, recoveryCode } = await questionKeys.setupBank(req.params.id, req.body?.pin, {
+        staffRow,
+        legacyPin: req.body?.oldPin,
+        legacyRecoveryCode: req.body?.oldRecoveryCode ? String(req.body.oldRecoveryCode) : null,
+      });
+      limiter.ok();
+      res.json({ ...(await openSet(req, bank, dek)), recoveryCode });
+    } catch (err) {
+      vaultFailure(res, err, limiter);
+    }
+  }));
+
+  // Forgotten PIN: the set's recovery code sets a new PIN and opens the set.
+  api.post('/banks/:id/recover', small, requireStaff(QM), route(async (req, res) => {
+    check(isUuid(req.params.id), 'Invalid set');
+    const limiter = pinLimited(req, res, req.params.id);
+    if (!limiter) return;
+    try {
+      const { bank, dek } = await questionKeys.recoverBank(req.params.id, String(req.body?.recoveryCode ?? ''), req.body?.pin);
+      limiter.ok();
+      res.json(await openSet(req, bank, dek));
+    } catch (err) {
+      vaultFailure(res, err, limiter);
+    }
+  }));
+
+  // Change a set's PIN (needs the current one). Tell the coordinator the new PIN.
+  api.post('/banks/:id/pin', small, requireStaff(QM), route(async (req, res) => {
+    check(isUuid(req.params.id), 'Invalid set');
+    const limiter = pinLimited(req, res, req.params.id);
+    if (!limiter) return;
+    try {
+      await questionKeys.changeBankPin(req.params.id, req.body?.currentPin, req.body?.pin);
+      limiter.ok();
+      res.json({ success: true });
+    } catch (err) {
+      vaultFailure(res, err, limiter);
     }
   }));
 
@@ -163,20 +316,16 @@ module.exports = function createApi(hooks) {
     const displayName = str(req.body?.displayName, 60);
     const role = req.body?.role;
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const pin = req.body?.pin != null ? String(req.body.pin) : '';
     check(USERNAME_RE.test(username), 'Username: an email address, or 3-64 letters, numbers, dot, dash or underscore');
     check(displayName, 'Name is required');
     check(ROLES.includes(role), 'Choose a role');
     check(password.length >= 8, 'Password must be at least 8 characters');
-    check(role !== QM || PIN_RE.test(pin), 'Quiz master needs a 4-8 digit PIN');
     check(!(await store.findStaffForLogin(username)), 'That username is taken');
     const staff = await store.createStaff({
       username,
       display_name: displayName,
       role,
       password_hash: await auth.hashSecret(password),
-      pin_hash: role === QM ? await auth.hashSecret(pin) : null,
-      ...(role === QM ? await questionKeys.keysForNewPin(pin) : {}),
       created_by: req.session.staff.id,
     });
     res.status(201).json(staff);
@@ -196,7 +345,6 @@ module.exports = function createApi(hooks) {
     if (req.body.role !== undefined && req.body.role !== target.role) {
       check(ROLES.includes(req.body.role), 'Choose a role');
       check(!isSelf, "You can't change your own role");
-      check(req.body.role !== QM || target.pin_hash || PIN_RE.test(String(req.body.pin ?? '')), 'Quiz master needs a 4-8 digit PIN');
       fields.role = req.body.role;
       endSessions = true;
     }
@@ -207,24 +355,15 @@ module.exports = function createApi(hooks) {
     }
     if (req.body.password !== undefined) {
       check(typeof req.body.password === 'string' && req.body.password.length >= 8, 'Password must be at least 8 characters');
+      const currentPassword = typeof req.body.currentPassword === 'string' ? req.body.currentPassword : '';
+      check(currentPassword.length > 0, 'Your current admin password is required to change a password');
+      const currentAdmin = await store.getStaffRow(req.session.staff.id);
+      const isCurrentPasswordValid = currentAdmin && await auth.verifySecret(currentPassword, currentAdmin.password_hash);
+      if (!isCurrentPasswordValid) {
+        return res.status(401).json({ error: 'Incorrect current password' });
+      }
       fields.password_hash = await auth.hashSecret(req.body.password);
       endSessions = !isSelf || endSessions;
-    }
-    const newRole = fields.role ?? target.role;
-    let resetKeyGrant = false;
-    if (req.body.pin !== undefined && req.body.pin !== '') {
-      check(PIN_RE.test(String(req.body.pin)), 'PIN must be 4-8 digits');
-      fields.pin_hash = await auth.hashSecret(String(req.body.pin));
-      // A new PIN means a new key pair; the question key is re-shared by the next unlocking quiz master.
-      if (newRole === QM) {
-        Object.assign(fields, await questionKeys.keysForNewPin(String(req.body.pin)));
-        resetKeyGrant = true;
-        endSessions = true;
-      }
-    }
-    if (target.role === QM && fields.role && fields.role !== QM) {
-      Object.assign(fields, { vault_public_key: null, vault_private_key: null, vault_key_salt: null });
-      resetKeyGrant = true;
     }
     // Never leave the event without an active admin.
     if (target.role === ADMIN && (fields.active === false || (fields.role && fields.role !== ADMIN))) {
@@ -232,7 +371,6 @@ module.exports = function createApi(hooks) {
     }
     check(Object.keys(fields).length, 'Nothing to change');
     const staff = await store.updateStaff(target.id, fields);
-    if (resetKeyGrant) await store.deleteGrant(target.id);
     if (endSessions) await auth.endSessionsForStaff(target.id);
     res.json(staff);
   }));
@@ -391,109 +529,188 @@ module.exports = function createApi(hooks) {
     sendCsv(res, 'techsprint-activity-log.csv', rows);
   }));
 
-  // ─── Question bank (quiz master + PIN; contents encrypted at rest) ──────────
+  // ─── The open question set (quiz master; contents encrypted at rest) ────────
+  // Everything below works on the set this session opened with its PIN.
   const qm = [requireStaff(QM), requireVault];
   const dekOf = req => req.session.dek;
-  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer });
+  const bankOf = req => req.session.bankId;
+  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId });
+  const changed = req => hooks.onQuestionsChanged(dekOf(req), bankOf(req));
+  // The image a stored question points to (inside its encrypted content).
+  const imageOf = async (req, id) => {
+    const row = (await store.listQuestionRows(bankOf(req))).find(r => r.id === id);
+    return row ? questionKeys.decryptRow(row, dekOf(req)).imageId ?? null : null;
+  };
+
+  // Rename or delete the open set.
+  api.patch('/banks/current', small, ...qm, route(async (req, res) => {
+    const name = bankName(req.body?.name);
+    check(name, 'Give the set a name');
+    await store.updateBank(bankOf(req), { name });
+    res.json({ id: bankOf(req), name });
+  }));
+
+  api.delete('/banks/current', small, ...qm, route(async (req, res) => {
+    const bank = await store.getBank(bankOf(req));
+    check(bank && req.body?.confirmName === bank.name, 'Type the set name to confirm');
+    await store.deleteBank(bank.id); // its levels, questions and pictures go with it
+    await auth.lockVault(req.session.tokenHash);
+    res.json({ success: true });
+  }));
+
+  // Upload a question image: the browser sends it resized (base64); stored encrypted.
+  const imageBody = express.json({ limit: '5mb' });
+  api.post('/questions/images', imageBody, ...qm, route(async (req, res) => {
+    const mime = String(req.body?.mime || '');
+    check(IMAGE_TYPES.includes(mime), 'Use a JPEG, PNG or WebP image');
+    const bytes = Buffer.from(String(req.body?.data || ''), 'base64');
+    check(bytes.length > 0 && bytes.length <= MAX_IMAGE_BYTES, 'Image must be under 3 MB');
+    const image = await store.insertImage({ bank_id: bankOf(req), mime, payload: vault.encryptImage(dekOf(req), bytes), bytes: bytes.length, created_by: req.session.staff.id });
+    res.status(201).json(image);
+  }));
+
+  // Preview for the quiz master (decrypted on the fly, never cached).
+  api.get('/questions/images/:id', ...qm, route(async (req, res) => {
+    check(UUID_RE.test(req.params.id), 'Invalid image');
+    const [image] = await store.getImages([req.params.id], bankOf(req));
+    if (!image) return res.status(404).json({ error: 'Image not found' });
+    res.set({ 'Content-Type': image.mime, 'Cache-Control': 'no-store' });
+    res.send(vault.decryptImage(dekOf(req), image.payload));
+  }));
 
   api.post('/questions/recovery-code', ...qm, route(async (req, res) => {
-    res.json({ recoveryCode: await questionKeys.rotateRecoveryCode(dekOf(req)) });
+    res.json({ recoveryCode: await questionKeys.rotateRecoveryCode(bankOf(req), dekOf(req)) });
   }));
 
   api.get('/questions', ...qm, route(async (req, res) => {
-    res.json((await store.listQuestionRows()).map(r => questionKeys.decryptRow(r, dekOf(req))));
+    res.json((await store.listQuestionRows(bankOf(req))).map(r => questionKeys.decryptRow(r, dekOf(req))));
   }));
 
-  const checkLevelExists = async level =>
-    check((await store.listLevels()).some(l => l.number === level), 'That level no longer exists — reload the page');
+  const checkLevelExists = async (req, level) =>
+    check((await store.listLevels(bankOf(req))).some(l => l.number === level), 'That level no longer exists — reload the page');
 
   api.post('/questions', small, ...qm, route(async (req, res) => {
     const q = validateQuestion(req.body || {});
-    await checkLevelExists(q.level);
-    const row = await store.createQuestion(q, sealContent(req, q));
-    hooks.onQuestionsChanged(dekOf(req));
+    await checkLevelExists(req, q.level);
+    const row = await store.createQuestion(bankOf(req), q, sealContent(req, q));
+    changed(req);
     res.status(201).json(questionKeys.decryptRow(row, dekOf(req)));
   }));
 
   api.put('/questions/:id', small, ...qm, route(async (req, res) => {
     const q = validateQuestion(req.body || {});
-    await checkLevelExists(q.level);
-    const row = await store.updateQuestion(Number(req.params.id), q, sealContent(req, q));
+    await checkLevelExists(req, q.level);
+    const id = Number(req.params.id);
+    const oldImage = await imageOf(req, id);
+    const row = await store.updateQuestion(bankOf(req), id, q, sealContent(req, q));
     if (!row) return res.status(404).json({ error: 'Question not found' });
-    hooks.onQuestionsChanged(dekOf(req));
+    if (oldImage && oldImage !== q.imageId) await store.deleteImages([oldImage]);
+    changed(req);
     res.json(questionKeys.decryptRow(row, dekOf(req)));
   }));
 
   api.delete('/questions/:id', ...qm, route(async (req, res) => {
-    await store.deleteQuestion(Number(req.params.id));
-    hooks.onQuestionsChanged(dekOf(req));
+    const id = Number(req.params.id);
+    const image = await imageOf(req, id);
+    await store.deleteQuestion(bankOf(req), id);
+    if (image) await store.deleteImages([image]);
+    changed(req);
     res.json({ success: true });
   }));
 
   api.post('/questions/:id/move', small, ...qm, route(async (req, res) => {
     check(['up', 'down'].includes(req.body?.direction), 'direction must be up or down');
-    if (!(await store.moveQuestion(Number(req.params.id), req.body.direction))) return res.status(404).json({ error: 'Question not found' });
-    hooks.onQuestionsChanged(dekOf(req));
+    if (!(await store.moveQuestion(bankOf(req), Number(req.params.id), req.body.direction))) return res.status(404).json({ error: 'Question not found' });
+    changed(req);
     res.json({ success: true });
   }));
 
-  // Levels (rounds): names and multipliers aren't secret, but only quiz masters manage them.
+  // Levels (rounds) of the open set: names and multipliers aren't secret, but only quiz masters manage them.
   function validateLevel(body) {
     const name = str(body?.name, 40);
     const multiplier = Math.round(Number(body?.multiplier) * 100) / 100;
-    const top = body?.qualifyTop;
-    const qualifyTop = top === null || top === undefined || top === '' ? null : Number(top);
     check(name, 'Level name is required');
     check(multiplier > 0 && multiplier <= 10, 'Multiplier must be between 0.1 and 10');
-    check(qualifyTop === null || (Number.isInteger(qualifyTop) && qualifyTop >= 1 && qualifyTop <= 10000),
-      'Players who advance must be a whole number (or empty for everyone)');
-    return { name, multiplier, qualify_top: qualifyTop };
+    const theme = body?.theme == null || body.theme === '' ? null : String(body.theme);
+    check(theme === null || THEMES.includes(theme), 'Unknown theme');
+    // Elimination at the end of the level (see gameEngine.computeCut); none = everyone advances.
+    const cut = body?.cut;
+    const rule = cut?.rule || null;
+    check(rule === null || CUT_RULES.includes(rule), 'Unknown cut rule');
+    const value = rule ? Number(cut.value) : null;
+    if (rule) {
+      const whole = ['top', 'bottom', 'min_correct'].includes(rule);
+      check(Number.isFinite(value) && value >= (rule === 'min_score' ? 0 : 1) && (!whole || Number.isInteger(value)),
+        rule === 'percent' ? 'Percent must be between 1 and 100' : rule === 'min_score' ? 'Minimum score must be 0 or more' : 'Enter a whole number of 1 or more');
+      check(rule !== 'percent' || value <= 100, 'Percent must be between 1 and 100');
+    }
+    const ties = cut?.ties === 'include' ? 'include' : 'speed';
+    return { name, multiplier, theme, cut_rule: rule, cut_value: value, cut_ties: ties };
   }
 
-  api.get('/levels', requireStaff(QM), route(async (req, res) => {
-    res.json(await store.listLevels());
+  api.get('/levels', ...qm, route(async (req, res) => {
+    res.json(await store.listLevels(bankOf(req)));
   }));
 
   api.post('/levels', small, ...qm, route(async (req, res) => {
-    const levels = await store.listLevels();
+    const levels = await store.listLevels(bankOf(req));
     check(levels.length < 20, 'At most 20 levels');
     check(!levels.length || levels[levels.length - 1].number < 99, 'Level numbers are used up');
-    const level = await store.createLevel(validateLevel(req.body));
+    const level = await store.createLevel(bankOf(req), validateLevel(req.body));
     res.status(201).json(level);
   }));
 
   api.put('/levels/:level', small, ...qm, route(async (req, res) => {
-    const level = await store.updateLevel(Number(req.params.level), validateLevel(req.body));
+    const level = await store.updateLevel(bankOf(req), Number(req.params.level), validateLevel(req.body));
     if (!level) return res.status(404).json({ error: 'Level not found' });
-    hooks.onQuestionsChanged(dekOf(req));
+    changed(req);
     res.json(level);
   }));
 
   api.delete('/levels/:level', ...qm, route(async (req, res) => {
     const number = Number(req.params.level);
-    check((await store.countQuestionsInLevel(number)) === 0, 'Move or delete the questions in this level first');
-    await store.deleteLevel(number);
+    check((await store.countQuestionsInLevel(bankOf(req), number)) === 0, 'Move or delete the questions in this level first');
+    await store.deleteLevel(bankOf(req), number);
     res.json({ success: true });
   }));
 
   api.put('/levels/:level/timer', small, ...qm, route(async (req, res) => {
     const level = Number(req.params.level);
     const seconds = Math.round(Number(req.body?.seconds));
-    await checkLevelExists(level);
+    await checkLevelExists(req, level);
     check(seconds >= 5 && seconds <= 300, 'Timer must be between 5 and 300 seconds');
-    await store.setLevelTimer(level, seconds);
-    hooks.onQuestionsChanged(dekOf(req));
+    await store.setLevelTimer(bankOf(req), level, seconds);
+    changed(req);
     res.json({ success: true });
   }));
 
-  // The only path from the encrypted bank to the live event: the quiz master decrypts the active
-  // questions into the game server's memory. The coordinator then runs the game.
-  api.get('/game/questions-status', requireStaff(QM), route(async (req, res) => {
+  // ─── Loading a set into the live game ────────────────────────────────────────
+  // The only path from a set to the live event. The coordinator (or an admin) picks the set and
+  // enters its PIN in the host console; a quiz master can also load the set they have open.
+  // The questions are decrypted straight into the game server's memory.
+  api.get('/game/questions-status', requireStaff(QM, COORD, ADMIN), route(async (req, res) => {
     res.json(await hooks.gameStatus());
   }));
 
-  api.post('/game/load-questions', ...qm, route(async (req, res) => {
-    const result = await hooks.loadQuestionsIntoGame(dekOf(req), req.session.staff);
+  api.post('/game/load-questions', small, requireStaff(QM, COORD, ADMIN), route(async (req, res) => {
+    const bankId = req.body?.bankId ?? (auth.vaultOpen(req.session) ? req.session.bankId : null);
+    check(isUuid(bankId), 'Choose a question set');
+    let bank;
+    let dek;
+    if (req.body?.pin == null && auth.vaultOpen(req.session) && req.session.bankId === bankId) {
+      bank = await store.getBank(bankId);
+      dek = req.session.dek;
+    } else {
+      const limiter = pinLimited(req, res, bankId);
+      if (!limiter) return;
+      try {
+        ({ bank, dek } = await questionKeys.openBank(bankId, req.body?.pin));
+        limiter.ok();
+      } catch (err) {
+        return vaultFailure(res, err, limiter);
+      }
+    }
+    const result = await hooks.loadQuestionsIntoGame(dek, req.session.staff, { id: bank.id, name: bank.name });
     if (result.error) return res.status(result.offline ? 502 : 409).json(result);
     res.json(result);
   }));

@@ -1,10 +1,11 @@
 // Adds dummy data for a test run: 30 registrations (TEST0001-TEST0030; the first 20 already
 // checked in, the rest left for the pass scanner) and 10 test questions across the 3 rounds.
-// Usage: npm run seed:test
+// Usage: npm run seed:test                  (questions go into "Trial set")
+//        node seed-test-data.js "Main set"   (another set)
 //
-// Registrations are upserted, so re-running is safe. Questions are appended to the bank (existing
+// Registrations are upserted, so re-running is safe. Questions are appended to the set (existing
 // questions are kept) as plaintext rows; they are encrypted automatically the next time a quiz
-// master unlocks the bank. Re-running adds them again unless they are still plaintext.
+// master opens the set with its PIN. Re-running adds them again unless they are still plaintext.
 // Clean up afterwards: delete or hide the test questions in Admin -> Questions, and remove the
 // TEST tickets in the Supabase dashboard (registrations where ticket_id starts with TEST).
 require('dotenv').config();
@@ -56,27 +57,39 @@ async function check(promise, label) {
   return data;
 }
 
-async function main() {
-  await check(supabase.from('registrations').upsert(REGISTRATIONS, { onConflict: 'ticket_id' }), 'Adding registrations');
-  console.log(`Registrations: ${REGISTRATIONS.length} (TEST0001-TEST0020 checked in, TEST0021-TEST0030 not yet)`);
+// Append plaintext questions to a set by name (missing levels are created). Returns how many were added.
+async function addQuestionsToSet(setName, questions) {
+  const [bank] = await check(supabase.from('question_banks').select('id').eq('name', setName).limit(1), 'Finding the set');
+  if (!bank) throw new Error(`No question set called "${setName}" — create it in Admin -> Questions first`);
+  const levels = await check(supabase.from('levels').select('number').eq('bank_id', bank.id), 'Loading levels');
+  const missing = [...new Set(questions.map(q => q.level))].filter(n => !levels.some(l => l.number === n));
+  if (missing.length) await check(supabase.from('levels').insert(missing.map(n => ({ bank_id: bank.id, number: n, name: `Level ${n}`, multiplier: 1 }))), 'Adding levels');
 
-  const existing = await check(supabase.from('questions').select('level, position, text'), 'Loading questions');
+  const existing = await check(supabase.from('questions').select('level, position, text').eq('bank_id', bank.id), 'Loading questions');
   const plaintext = new Set(existing.map(r => r.text).filter(Boolean));
   const nextPos = {};
   for (const r of existing) nextPos[r.level] = Math.max(nextPos[r.level] ?? 0, r.position + 1);
-
-  const rows = QUESTIONS.filter(q => !plaintext.has(q.text)).map(q => ({
+  const rows = questions.filter(q => !plaintext.has(q.text)).map(q => ({
     ...q,
+    bank_id: bank.id,
     position: (nextPos[q.level] = (nextPos[q.level] ?? 0) + 1) - 1,
     is_active: true,
   }));
   if (rows.length) await check(supabase.from('questions').insert(rows), 'Adding questions');
-  const byLevel = [1, 2, 3].map(l => rows.filter(r => r.level === l).length).join(' / ');
-  console.log(`Questions: added ${rows.length} (round 1 / 2 / 3: ${byLevel}); bank now has ${existing.length + rows.length}`);
+  return rows.length;
+}
+
+async function main() {
+  await check(supabase.from('registrations').upsert(REGISTRATIONS, { onConflict: 'ticket_id' }), 'Adding registrations');
+  console.log(`Registrations: ${REGISTRATIONS.length} (TEST0001-TEST0020 checked in, TEST0021-TEST0030 not yet)`);
+  const setName = process.argv[2] || 'Trial set';
+  const added = await addQuestionsToSet(setName, QUESTIONS);
+  console.log(`Questions: added ${added} to "${setName}"`);
   process.exit(0);
 }
 
-module.exports = { QUESTIONS }; // used by simulate-event.js as the bots' answer key
+// QUESTIONS: the bots' answer key in simulate-event.js. addQuestionsToSet: used by seed.js.
+module.exports = { QUESTIONS, addQuestionsToSet };
 
 if (require.main === module) {
   main().catch(err => {

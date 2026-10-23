@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import QRCode from 'qrcode';
+import { avatarUri } from '../lib/avatar';
 
 export const OPTION_LABELS = ['A', 'B', 'C', 'D'];
 
@@ -18,7 +19,7 @@ export function BrandMark({ className = 'brand-mark' }: { className?: string }) 
 export function Brand({ size, event = true }: { size?: string; event?: boolean }) {
   return (
     <span className="brand" style={size ? { fontSize: size } : undefined}>
-      <BrandMark />
+      <img src="/vyuham-logo.png" alt="Vyuham" className="brand-logo" />
       TechSprint
       {event && <span className="brand-event">Vyuham '26</span>}
     </span>
@@ -112,4 +113,60 @@ export function Rise({ d = 0, as: Tag = 'div', className = '', style, children }
   d?: number; as?: 'div' | 'span' | 'p' | 'h1' | 'h2'; className?: string; style?: CSSProperties; children: ReactNode;
 }) {
   return <Tag className={`rise ${className}`} style={{ ...style, ['--d' as string]: `${d}ms` }}>{children}</Tag>;
+}
+
+// ─── Vyuham '26 + comic theme pieces ─────────────────────────────────────────
+
+// The Vyuham logo (red mark; white version for dark backgrounds).
+export function VyuhamLogo({ height = 40, white = false, style }: { height?: number | string; white?: boolean; style?: CSSProperties }) {
+  return <img src={white ? '/vyuham-logo-white.png' : '/vyuham-logo.png'} alt="Vyuham" style={{ height, width: 'auto', display: 'block', ...style }} />;
+}
+
+// Backdrop of a projector/phone stage: paper gradient, faint rays, halftone corners and the
+// concentric rings (put it first inside <div className="stage" data-theme="mono">).
+export function ComicBg() {
+  return (
+    <>
+      <div className="comic-bg" aria-hidden="true" />
+      <Rings size="max(120vmin, 640px)" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }} />
+    </>
+  );
+}
+
+// Starburst speech bubble behind its children.
+const BURST_POINTS = (() => {
+  const spikes = 18;
+  const pts: string[] = [];
+  for (let i = 0; i < spikes * 2; i++) {
+    const angle = (Math.PI * i) / spikes - Math.PI / 2;
+    // Irregular spikes, like a hand-drawn comic burst (deterministic, so it doesn't jitter).
+    const r = i % 2 === 0 ? 50 : 36 + ((i * 37) % 9);
+    pts.push(`${(50 + r * Math.cos(angle)).toFixed(1)},${(50 + r * Math.sin(angle) * 0.82).toFixed(1)}`);
+  }
+  return pts.join(' ');
+})();
+
+export function Burst({ children, style, className = '' }: { children: ReactNode; style?: CSSProperties; className?: string }) {
+  return (
+    <div className={`burst ${className}`} style={style}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+        <defs>
+          <pattern id="burst-dots" width="3" height="3" patternUnits="userSpaceOnUse">
+            <circle cx="1.5" cy="1.5" r="0.55" className="burst-dots" />
+          </pattern>
+        </defs>
+        <polygon points={BURST_POINTS} />
+        <ellipse cx="50" cy="56" rx="26" ry="16" fill="url(#burst-dots)" opacity="0.5" />
+      </svg>
+      {children}
+    </div>
+  );
+}
+
+export function Avatar({ id, size = 40, style }: { id?: string | null; size?: number | string; style?: CSSProperties }) {
+  return (
+    <span className="avatar" style={{ width: size, height: size, display: 'inline-block', ...style }}>
+      <img src={avatarUri(id)} alt="" loading="lazy" />
+    </span>
+  );
 }

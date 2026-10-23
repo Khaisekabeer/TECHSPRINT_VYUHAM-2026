@@ -5,15 +5,31 @@ const ANSWER_GRACE_MS = 1000;
 const MAX_NAME_LENGTH = 20;
 // A correct answer faster than this on a question of 10 s or more is flagged for staff to review.
 const FAST_CORRECT_MS = 1500;
+// Avatar picked on the phone: style (a = cartoon person, b = robot) and a seed, drawn in the browser.
+const AVATAR_RE = /^[ab]:[A-Za-z0-9]{1,16}$/;
+// Level themes; a level without one gets the next in this order by its round.
+const THEME_ORDER = ['blast', 'pop', 'arcade', 'circuit'];
 
 // What other clients may see about a player (never the rejoin token or ticket).
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status };
+  return { id: p.id, name: p.name, avatar: p.avatar, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status };
 }
 
 // Standings: higher score first; on a tie, less total answer time (a skipped question counts as
 // its full timer, so skipping never helps).
 const byStanding = (a, b) => (b.score - a.score) || (a.totalResponseTime - b.totalResponseTime);
+
+// How a level's cut reads on screens and in the records.
+function cutLabel({ rule, value }) {
+  switch (rule) {
+    case 'top': return `Top ${value} go through`;
+    case 'percent': return `Top ${value}% go through`;
+    case 'min_score': return `${value}+ points to go through`;
+    case 'bottom': return `Bottom ${value} are out`;
+    case 'min_correct': return `${value}+ correct answers to go through`;
+    default: return '';
+  }
+}
 
 class GameEngine {
   constructor() {
@@ -35,13 +51,15 @@ class GameEngine {
     this.answers = {};    // participantId -> { participantId, answer, time, isCorrect, pointsEarned, badge }
     this.firstBloodAwarded = false;
     this.lastResult = null; // reveal data for the last question, resent to screens that (re)connect
+    // End-of-level cut waiting for the coordinator: { level, info, keep: Set, out: Set }.
+    this.pendingCut = null;
   }
 
   setQuestions(questions) {
     this.questions = questions;
   }
 
-  // Levels come with the questions (levelName, multiplier, qualifyTop set by the quiz master).
+  // Levels come with the questions (levelName, multiplier, cut, theme set by the quiz master).
   // The round number is the level's place among the levels in this game, so gaps don't show.
   levelNumbers() {
     return [...new Set(this.questions.map(q => q.level || 1))];
@@ -50,13 +68,20 @@ class GameEngine {
   levelInfo(level) {
     const q = this.questions.find(x => (x.level || 1) === level);
     const multiplier = Number(q?.multiplier);
-    const top = Number(q?.qualifyTop);
+    const levels = this.levelNumbers();
+    const round = Math.max(1, levels.indexOf(level) + 1);
+    const isLast = levels[levels.length - 1] === level;
+    const rawCut = q?.cut?.rule && Number.isFinite(Number(q.cut.value))
+      ? { rule: q.cut.rule, value: Number(q.cut.value), ties: q.cut.ties === 'include' ? 'include' : 'speed' }
+      : null;
     return {
       number: level,
-      round: Math.max(1, this.levelNumbers().indexOf(level) + 1),
+      round,
       name: q?.levelName || `Level ${level}`,
       multiplier: multiplier > 0 ? multiplier : 1,
-      qualifyTop: Number.isInteger(top) && top > 0 ? top : null,
+      // The cut at the end of this level (none on the final level).
+      cut: rawCut && !isLast ? { ...rawCut, label: cutLabel(rawCut) } : null,
+      theme: q?.theme || THEME_ORDER[(round - 1) % THEME_ORDER.length],
     };
   }
 
@@ -73,7 +98,7 @@ class GameEngine {
   }
 
   // ticket: { ticketId, fullName } when check-in is required, otherwise null.
-  addPlayer(socketId, rawName, rawTeam, ticket = null) {
+  addPlayer(socketId, rawName, rawTeam, ticket = null, rawAvatar = null) {
     if (this.sockets[socketId]) return { error: 'Already joined' };
     const name = typeof rawName === 'string' ? rawName.trim() : '';
     if (!name || name.length > MAX_NAME_LENGTH) return { error: `Name must be 1-${MAX_NAME_LENGTH} characters` };
@@ -92,9 +117,11 @@ class GameEngine {
       fullName: ticket?.fullName ?? null,
       name,
       team,
+      avatar: typeof rawAvatar === 'string' && AVATAR_RE.test(rawAvatar) ? rawAvatar : `b:${randomBytes(4).toString('hex')}`,
       score: 0,
       streak: 0,
       totalResponseTime: 0,
+      levelCorrect: {}, // level number -> correct answers in that level (for "min correct" cuts)
       status: 'active', // active | eliminated | disqualified
       exit: null,       // { reason, level, round, levelName, rank, score, note, staffId } once out
       // Indicators for staff (never decisive on their own): leaving the quiz screen during a
@@ -151,39 +178,118 @@ class GameEngine {
     return player;
   }
 
-  // ─── Elimination & disqualification ─────────────────────────────────────────
+  // ─── Elimination ────────────────────────────────────────────────────────────
   activePlayers() {
     return Object.values(this.players).filter(p => p.status === 'active');
   }
 
-  // After a level's last question: keep the top N (current standings among active players),
-  // eliminate the rest. Called by endQuestion only when another level follows.
-  applyCut(levelNumber) {
+  // Who would go through if the level's cut were applied now. Rules (set per level):
+  //   top N · top X% · bottom N out · score of at least X · at least K correct in this level.
+  // Ties at the line: 'speed' = the faster player wins; 'include' = everyone tied goes through.
+  computeCut(levelNumber) {
     const info = this.levelInfo(levelNumber);
+    const cut = info.cut;
+    if (!cut) return null;
     const ranked = this.activePlayers().sort(byStanding);
-    const out = info.qualifyTop && ranked.length > info.qualifyTop ? ranked.slice(info.qualifyTop) : [];
-    out.forEach((p, i) => {
+    const byCount = n => {
+      const count = Math.max(0, Math.min(ranked.length, Math.floor(n)));
+      if (count >= ranked.length) return ranked;
+      if (count === 0) return [];
+      if (cut.ties === 'include') {
+        const line = ranked[count - 1].score;
+        return ranked.filter(p => p.score >= line);
+      }
+      return ranked.slice(0, count);
+    };
+    let through;
+    switch (cut.rule) {
+      case 'top': through = byCount(cut.value); break;
+      case 'percent': through = byCount(Math.ceil((ranked.length * cut.value) / 100)); break;
+      case 'bottom': through = byCount(ranked.length - cut.value); break;
+      case 'min_score': through = ranked.filter(p => p.score >= cut.value); break;
+      case 'min_correct': through = ranked.filter(p => (p.levelCorrect[levelNumber] || 0) >= cut.value); break;
+      default: through = ranked;
+    }
+    const keep = new Set(through.map(p => p.id));
+    return { info, ranked, keep, out: ranked.filter(p => !keep.has(p.id)).map(p => p.id) };
+  }
+
+  // The proposed cut for the coordinator to review (staff only).
+  pendingCutView() {
+    const pc = this.pendingCut;
+    if (!pc) return null;
+    const ranked = this.activePlayers().sort(byStanding);
+    const row = (p, i) => ({
+      id: p.id, name: p.name, avatar: p.avatar, ticketId: p.ticketId, rank: i + 1, score: p.score,
+      correctInLevel: p.levelCorrect[pc.level] || 0,
+    });
+    const rows = ranked.map(row);
+    return {
+      level: pc.level,
+      round: pc.info.round,
+      levelName: pc.info.name,
+      label: pc.info.cut.label,
+      ties: pc.info.cut.ties,
+      advance: rows.filter(r => pc.keep.has(r.id)),
+      out: rows.filter(r => pc.out.has(r.id)),
+    };
+  }
+
+  // Coordinator moves a player across the line before confirming.
+  adjustCut(participantId, keep) {
+    const pc = this.pendingCut;
+    if (!pc) return { error: 'There is no cut waiting' };
+    if (!this.players[participantId] || this.players[participantId].status !== 'active') return { error: 'Player not found' };
+    if (keep) { pc.out.delete(participantId); pc.keep.add(participantId); } else { pc.keep.delete(participantId); pc.out.add(participantId); }
+    return { success: true };
+  }
+
+  // Apply the cut: everyone in `out` is eliminated with their rank at that moment.
+  confirmCut(staffId = null) {
+    const pc = this.pendingCut;
+    if (!pc) return { error: 'There is no cut waiting' };
+    const ranked = this.activePlayers().sort(byStanding);
+    const before = new Map(ranked.map((p, i) => [p.id, { rank: i + 1, score: p.score }]));
+    const out = ranked.filter(p => pc.out.has(p.id));
+    for (const p of out) {
       this.closeAway(p);
       p.status = 'eliminated';
       p.exit = {
-        reason: 'cut',
-        level: levelNumber,
-        round: info.round,
-        levelName: info.name,
-        rank: info.qualifyTop + i + 1,
-        score: p.score,
-        note: `Top ${info.qualifyTop} advance after ${info.name}`,
-        staffId: null,
+        reason: 'cut', level: pc.level, round: pc.info.round, levelName: pc.info.name,
+        rank: before.get(p.id).rank, score: p.score, note: `${pc.info.cut.label} after ${pc.info.name}`, staffId,
       };
-    });
-    return {
-      level: levelNumber,
-      round: info.round,
-      levelName: info.name,
-      qualifyTop: info.qualifyTop,
+    }
+    this.pendingCut = null;
+    const elimination = {
+      level: pc.level, round: pc.info.round, levelName: pc.info.name, label: pc.info.cut.label,
       advanced: ranked.length - out.length,
       eliminated: out.map(p => ({ id: p.id, name: p.name, rank: p.exit.rank, score: p.score })),
     };
+    // Survivors move up; prevRank lets the projector animate the change.
+    const leaderboard = this.activePlayers().sort(byStanding)
+      .map(p => ({ ...publicPlayer(p), prevRank: before.get(p.id).rank, prevScore: p.score }));
+    this.lastResult = { ...this.lastResult, leaderboard, elimination, pendingCut: null, atRisk: [] };
+    return { success: true, elimination, out, leaderboard };
+  }
+
+  // Coordinator eliminates one player directly (e.g. a panel decision). Not a disqualification:
+  // they keep a rank among the eliminated.
+  eliminate(participantId, note, staffId = null) {
+    const player = this.players[participantId];
+    if (!player) return { error: 'Player not found' };
+    if (player.status !== 'active') return { error: 'That player is already out' };
+    const info = this.levelInfo(this.currentLevel);
+    const rank = this.activePlayers().sort(byStanding).indexOf(player) + 1;
+    this.closeAway(player);
+    if (this.state === 'question') delete this.answers[player.id];
+    this.pendingCut?.keep.delete(player.id);
+    this.pendingCut?.out.delete(player.id);
+    player.status = 'eliminated';
+    player.exit = {
+      reason: 'manual', level: info.number, round: info.round, levelName: info.name,
+      rank, score: player.score, note: note || 'Eliminated by the quiz host', staffId,
+    };
+    return { success: true, player };
   }
 
   // Staff action (malpractice etc.): the player is out at once, keeps no rank, and an answer
@@ -195,6 +301,8 @@ class GameEngine {
     const info = this.levelInfo(this.currentLevel);
     this.closeAway(player);
     if (this.state === 'question') delete this.answers[player.id];
+    this.pendingCut?.keep.delete(player.id);
+    this.pendingCut?.out.delete(player.id);
     player.status = 'disqualified';
     player.exit = {
       reason: 'disqualified',
@@ -290,6 +398,7 @@ class GameEngine {
   // Advances to the next question, showing a level intro first whenever the level changes.
   startQuestion() {
     if (this.state !== 'intro' && this.state !== 'leaderboard') return { error: 'Cannot start a question now' };
+    if (this.pendingCut) return { error: 'Confirm the cut first — it is waiting below' };
     if (this.currentQuestionIndex >= this.questions.length || this.activePlayers().length === 0) {
       this.state = 'podium';
       return { success: true };
@@ -373,6 +482,7 @@ class GameEngine {
     this.state = 'leaderboard';
 
     const q = this.currentQuestion();
+    const level = q.level || 1;
     const stats = {};
     (q.options || []).forEach(o => { stats[o] = 0; });
 
@@ -386,6 +496,9 @@ class GameEngine {
       }
     }
 
+    // Standings before this question, so the projector can show the old order first and animate.
+    const before = new Map(this.activePlayers().sort(byStanding).map((p, i) => [p.id, { rank: i + 1, score: p.score }]));
+
     // Apply the scores at the reveal. A wrong answer or no answer breaks the streak, and no
     // answer counts as the full timer for tie-breaks.
     for (const p of this.activePlayers()) {
@@ -395,6 +508,7 @@ class GameEngine {
       if (a?.isCorrect) {
         p.score += a.pointsEarned;
         p.streak += 1;
+        p.levelCorrect[level] = (p.levelCorrect[level] || 0) + 1;
       } else {
         p.streak = 0;
       }
@@ -402,22 +516,60 @@ class GameEngine {
 
     this.currentQuestionIndex++;
     const next = this.questions[this.currentQuestionIndex];
-    const level = q.level || 1;
-    // End of a level with a cut, and another level follows: eliminate everyone below the cut.
-    const elimination = next && (next.level || 1) !== level && this.levelInfo(level).qualifyTop
-      ? this.applyCut(level)
-      : null;
+    const levelEnds = !next || (next.level || 1) !== level;
+    // Who is below the line right now (shown as "at risk" during the level). At the level's end
+    // the cut waits for the coordinator to review and confirm it.
+    const proposal = this.computeCut(level);
+    let pendingCut = null;
+    let elimination = null;
+    if (levelEnds && proposal) {
+      if (proposal.out.length) {
+        this.pendingCut = { level, info: proposal.info, keep: proposal.keep, out: new Set(proposal.out) };
+        pendingCut = { label: proposal.info.cut.label, advancing: proposal.keep.size, out: proposal.out.length };
+      } else {
+        elimination = { level, round: proposal.info.round, levelName: proposal.info.name, label: proposal.info.cut.label, advanced: proposal.keep.size, eliminated: [] };
+      }
+    }
 
     this.lastResult = {
       state: this.state,
       correctAnswer: q.correctAnswer,
       stats,
       speedStar,
-      leaderboard: this.activePlayers().sort(byStanding).slice(0, 10).map(publicPlayer),
-      isLastQuestion: !next || this.activePlayers().length === 0,
+      // Everyone still in, in order (the projector adapts its layout to the count), with their
+      // previous rank and score for the animation.
+      leaderboard: this.activePlayers().sort(byStanding).map(p => ({
+        ...publicPlayer(p), prevRank: before.get(p.id)?.rank ?? null, prevScore: before.get(p.id)?.score ?? p.score,
+      })),
+      atRisk: proposal ? proposal.out : [],
+      cutLabel: proposal ? proposal.info.cut.label : null,
+      pendingCut,
       elimination,
+      hasImage: !!q.image,
+      questionIndex: this.currentQuestionIndex - 1,
+      isLastQuestion: !next || this.activePlayers().length === 0,
     };
     return this.lastResult;
+  }
+
+  // A player's place among those still in (for their phone at each reveal).
+  standingOf(player) {
+    if (player.status !== 'active') return null;
+    const ranked = this.activePlayers().sort(byStanding);
+    return {
+      rank: ranked.indexOf(player) + 1,
+      of: ranked.length,
+      atRisk: !!this.lastResult?.atRisk?.includes(player.id),
+      cutLabel: this.lastResult?.cutLabel ?? null,
+    };
+  }
+
+  // A question's picture, only once that question is live (or already revealed).
+  liveImage(index) {
+    const q = this.questions[index];
+    if (!q?.image) return null;
+    const shown = index < this.currentQuestionIndex || (this.state === 'question' && index === this.currentQuestionIndex);
+    return shown ? q.image : null;
   }
 
   getState() {
@@ -430,6 +582,7 @@ class GameEngine {
       totalQuestions: this.questions.length,
       levelConfig: this.levelInfo(this.currentLevel),
       playersLeft: this.activePlayers().length,
+      cutPending: !!this.pendingCut,
       questionStartTime: this.questionStartTime,
       questionEndsAt: this.questionEndsAt,
       serverNow: Date.now(),
@@ -441,7 +594,7 @@ class GameEngine {
         type: q.type,
         options: q.options,
         timeLimit: q.timeLimit,
-        imageUrl: q.imageUrl,
+        hasImage: !!q.image,
       } : null,
       finalLeaderboard: this.state === 'podium' ? this.getPlayersList() : null,
     };

@@ -21,18 +21,18 @@ function createApp(hooks) {
 // Game in the same process.
 function localHooks(game) {
   return {
-    async onQuestionsChanged(dek) {
-      // Edits in the lobby refresh questions that were already loaded; a running game keeps its list.
+    async onQuestionsChanged(dek, bankId) {
+      // Edits in the lobby refresh that set's questions if they are loaded; a running game keeps its list.
       const s = game.status();
-      if (s.state !== 'lobby' || !s.count) return;
+      if (s.state !== 'lobby' || !s.count || s.bank?.id !== bankId) return;
       try {
-        game.loadQuestions(await questionKeys.loadGameQuestions(dek), s.by);
+        game.loadQuestions(await questionKeys.loadGameQuestions(bankId, dek), s.by, s.bank);
       } catch (err) {
         console.error(err.message);
       }
     },
-    async loadQuestionsIntoGame(dek, staff) {
-      return game.loadQuestions(await questionKeys.loadGameQuestions(dek), staff.displayName);
+    async loadQuestionsIntoGame(dek, staff, bank) {
+      return game.loadQuestions(await questionKeys.loadGameQuestions(bank.id, dek), staff.displayName, bank);
     },
     async gameStatus() {
       return game.status();
@@ -47,11 +47,11 @@ function localHooks(game) {
 function remoteHooks() {
   return {
     async onQuestionsChanged() {
-      // The quiz master presses "Reload into game" after edits.
+      // After edits, the set is loaded again (host console or quiz master).
     },
-    async loadQuestionsIntoGame(dek, staff) {
-      const questions = await questionKeys.loadGameQuestions(dek);
-      return remote.call('POST', '/internal/questions', { questions, by: staff.displayName });
+    async loadQuestionsIntoGame(dek, staff, bank) {
+      const questions = await questionKeys.loadGameQuestions(bank.id, dek);
+      return remote.call('POST', '/internal/questions', { questions, by: staff.displayName, bank });
     },
     async gameStatus() {
       const r = await remote.call('GET', '/internal/status');

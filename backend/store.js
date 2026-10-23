@@ -87,7 +87,7 @@ function insertSession(row) {
 async function getSessionWithStaff(tokenHash) {
   const rows = await run(
     supabase.from('staff_sessions')
-      .select('token_hash, expires_at, vault_until, vault_dek, staff:staff_id (id, username, display_name, role, active)')
+      .select('token_hash, expires_at, vault_until, vault_dek, vault_bank, staff:staff_id (id, username, display_name, role, active)')
       .eq('token_hash', tokenHash)
       .limit(1),
     'Loading session',
@@ -95,9 +95,9 @@ async function getSessionWithStaff(tokenHash) {
   return rows[0] || null;
 }
 
-function setSessionVault(tokenHash, vaultUntil, vaultDek = null) {
+function setSessionVault(tokenHash, vaultUntil, vaultDek = null, bankId = null) {
   return run(
-    supabase.from('staff_sessions').update({ vault_until: vaultUntil, vault_dek: vaultDek }).eq('token_hash', tokenHash),
+    supabase.from('staff_sessions').update({ vault_until: vaultUntil, vault_dek: vaultDek, vault_bank: bankId }).eq('token_hash', tokenHash),
     'Updating session',
   );
 }
@@ -219,28 +219,78 @@ async function getSettings() {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 }
 
+async function getSetting(key) {
+  const rows = await run(supabase.from('settings').select('value').eq('key', key).limit(1), 'Loading setting');
+  return rows[0]?.value ?? null;
+}
+
 function setSetting(key, value) {
   return run(supabase.from('settings').upsert({ key, value, updated_at: new Date().toISOString() }), 'Saving setting');
 }
 
-// ─── Question bank (content is encrypted; see vault.js) ───────────────────────
+function deleteSetting(key) {
+  return run(supabase.from('settings').delete().eq('key', key), 'Deleting setting');
+}
+
+// ─── Question sets ("Main set", "Trial set", ...) ────────────────────────────
+// Each set has its own key, sealed with the set's PIN (see questionKeys.js).
+const BANK_SECRET_COLUMNS = 'pin_salt, wrapped_dek, recovery_salt, recovery_wrapped';
+
+async function getBank(id) {
+  const rows = await run(supabase.from('question_banks').select(`id, name, created_at, updated_at, ${BANK_SECRET_COLUMNS}`).eq('id', id).limit(1), 'Loading question set');
+  return rows[0] || null;
+}
+
+// For pickers: name, whether it has a PIN yet, and how many questions/levels (no key material).
+async function listBanks() {
+  const [banks, questions, levels] = await Promise.all([
+    run(supabase.from('question_banks').select('id, name, wrapped_dek, created_at, updated_at').order('created_at'), 'Listing question sets'),
+    run(supabase.from('questions').select('bank_id, is_active'), 'Counting questions'),
+    run(supabase.from('levels').select('bank_id'), 'Counting levels'),
+  ]);
+  return banks.map(b => ({
+    id: b.id,
+    name: b.name,
+    ready: !!b.wrapped_dek,
+    questions: questions.filter(q => q.bank_id === b.id).length,
+    active: questions.filter(q => q.bank_id === b.id && q.is_active).length,
+    levels: levels.filter(l => l.bank_id === b.id).length,
+    updatedAt: b.updated_at,
+  }));
+}
+
+async function insertBank(row) {
+  const rows = await run(supabase.from('question_banks').insert(row).select('id, name'), 'Creating question set');
+  return rows[0];
+}
+
+function updateBank(id, fields) {
+  return run(supabase.from('question_banks').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id), 'Updating question set');
+}
+
+function deleteBank(id) {
+  return run(supabase.from('question_banks').delete().eq('id', id), 'Deleting question set');
+}
+
+// ─── Questions of a set (content is encrypted; see vault.js) ─────────────────
 // Rows carry plaintext metadata (level, order, type, timer, points) and an encrypted `payload`
 // with the text, options and answer. Callers encrypt/decrypt; this layer only stores.
 const EMPTY_CONTENT = { text: null, options: [], correct_answer: null };
 
-function listQuestionRows() {
-  return run(supabase.from('questions').select('*').order('level').order('position').order('id'), 'Loading questions');
+function listQuestionRows(bankId) {
+  return run(supabase.from('questions').select('*').eq('bank_id', bankId).order('level').order('position').order('id'), 'Loading questions');
 }
 
-async function createQuestion(meta, payload) {
+async function createQuestion(bankId, meta, payload) {
   const last = await run(
-    supabase.from('questions').select('position').eq('level', meta.level).order('position', { ascending: false }).limit(1),
+    supabase.from('questions').select('position').eq('bank_id', bankId).eq('level', meta.level).order('position', { ascending: false }).limit(1),
     'Finding position',
   );
   const rows = await run(
     supabase.from('questions').insert({
       ...EMPTY_CONTENT,
       payload,
+      bank_id: bankId,
       level: meta.level,
       position: (last[0]?.position ?? -1) + 1,
       type: meta.type,
@@ -253,7 +303,7 @@ async function createQuestion(meta, payload) {
   return rows[0];
 }
 
-async function updateQuestion(id, meta, payload) {
+async function updateQuestion(bankId, id, meta, payload) {
   const rows = await run(
     supabase.from('questions').update({
       ...EMPTY_CONTENT,
@@ -263,7 +313,7 @@ async function updateQuestion(id, meta, payload) {
       time_limit: meta.timeLimit,
       points: meta.points,
       is_active: meta.isActive,
-    }).eq('id', id).select('*'),
+    }).eq('id', id).eq('bank_id', bankId).select('*'),
     'Updating question',
   );
   return rows[0] || null;
@@ -274,13 +324,13 @@ function sealQuestionRow(id, payload) {
   return run(supabase.from('questions').update({ ...EMPTY_CONTENT, payload }).eq('id', id).is('payload', null), 'Encrypting question');
 }
 
-function deleteQuestion(id) {
-  return run(supabase.from('questions').delete().eq('id', id), 'Deleting question');
+function deleteQuestion(bankId, id) {
+  return run(supabase.from('questions').delete().eq('id', id).eq('bank_id', bankId), 'Deleting question');
 }
 
 // Swap a question with its neighbour inside its level.
-async function moveQuestion(id, direction) {
-  const all = await listQuestionRows();
+async function moveQuestion(bankId, id, direction) {
+  const all = await listQuestionRows(bankId);
   const q = all.find(x => x.id === id);
   if (!q) return false;
   const level = all.filter(x => x.level === q.level);
@@ -295,42 +345,69 @@ async function moveQuestion(id, direction) {
   return true;
 }
 
-function setLevelTimer(level, seconds) {
-  return run(supabase.from('questions').update({ time_limit: seconds }).eq('level', level), 'Setting level timer');
+function setLevelTimer(bankId, level, seconds) {
+  return run(supabase.from('questions').update({ time_limit: seconds }).eq('bank_id', bankId).eq('level', level), 'Setting level timer');
 }
 
-// ─── Levels (rounds; played in number order) ─────────────────────────────────
-const LEVEL_COLUMNS = 'number, name, multiplier, qualify_top';
-const toLevel = row => ({ number: row.number, name: row.name, multiplier: Number(row.multiplier), qualifyTop: row.qualify_top ?? null });
+// ─── Levels of a set (rounds; played in number order) ────────────────────────
+const LEVEL_COLUMNS = 'number, name, multiplier, theme, cut_rule, cut_value, cut_ties';
+// cut: who goes on to the next level ({ rule, value, ties }), or null for everyone.
+const toLevel = row => ({
+  number: row.number,
+  name: row.name,
+  multiplier: Number(row.multiplier),
+  theme: row.theme ?? null,
+  cut: row.cut_rule ? { rule: row.cut_rule, value: Number(row.cut_value), ties: row.cut_ties || 'speed' } : null,
+});
 
-async function listLevels() {
-  return (await run(supabase.from('levels').select(LEVEL_COLUMNS).order('number'), 'Loading levels')).map(toLevel);
+async function listLevels(bankId) {
+  return (await run(supabase.from('levels').select(LEVEL_COLUMNS).eq('bank_id', bankId).order('number'), 'Loading levels')).map(toLevel);
 }
 
-async function createLevel({ name, multiplier, qualify_top = null }) {
-  const last = await run(supabase.from('levels').select('number').order('number', { ascending: false }).limit(1), 'Finding level number');
+async function createLevel(bankId, { name, multiplier, theme = null, cut_rule = null, cut_value = null, cut_ties = 'speed' }) {
+  const last = await run(supabase.from('levels').select('number').eq('bank_id', bankId).order('number', { ascending: false }).limit(1), 'Finding level number');
   const rows = await run(
-    supabase.from('levels').insert({ number: (last[0]?.number ?? 0) + 1, name, multiplier, qualify_top }).select(LEVEL_COLUMNS),
+    supabase.from('levels').insert({ bank_id: bankId, number: (last[0]?.number ?? 0) + 1, name, multiplier, theme, cut_rule, cut_value, cut_ties }).select(LEVEL_COLUMNS),
     'Adding level',
   );
   return toLevel(rows[0]);
 }
 
-async function updateLevel(number, fields) {
-  const rows = await run(supabase.from('levels').update(fields).eq('number', number).select(LEVEL_COLUMNS), 'Updating level');
+async function updateLevel(bankId, number, fields) {
+  const rows = await run(supabase.from('levels').update(fields).eq('bank_id', bankId).eq('number', number).select(LEVEL_COLUMNS), 'Updating level');
   return rows[0] ? toLevel(rows[0]) : null;
 }
 
-async function countQuestionsInLevel(number) {
-  const { count } = await run(supabase.from('questions').select('id', { count: 'exact', head: true }).eq('level', number), 'Counting questions');
+async function countQuestionsInLevel(bankId, number) {
+  const { count } = await run(supabase.from('questions').select('id', { count: 'exact', head: true }).eq('bank_id', bankId).eq('level', number), 'Counting questions');
   return count;
 }
 
-function deleteLevel(number) {
-  return run(supabase.from('levels').delete().eq('number', number), 'Deleting level');
+function deleteLevel(bankId, number) {
+  return run(supabase.from('levels').delete().eq('bank_id', bankId).eq('number', number), 'Deleting level');
 }
 
-// ─── Question vault keys ──────────────────────────────────────────────────────
+// ─── Question images of a set (encrypted bytes) ──────────────────────────────
+async function insertImage(row) {
+  const rows = await run(supabase.from('question_images').insert(row).select('id, mime, bytes'), 'Saving image');
+  return rows[0];
+}
+
+async function getImages(ids, bankId) {
+  if (!ids.length) return [];
+  return run(supabase.from('question_images').select('id, mime, payload').in('id', ids).eq('bank_id', bankId), 'Loading images');
+}
+
+function listImageMeta(bankId) {
+  return run(supabase.from('question_images').select('id, created_at').eq('bank_id', bankId), 'Listing images');
+}
+
+function deleteImages(ids) {
+  if (!ids.length) return Promise.resolve([]);
+  return run(supabase.from('question_images').delete().in('id', ids), 'Deleting images');
+}
+
+// ─── Old single-bank keys (read once when moving the old bank into a set) ─────
 async function getVault() {
   const rows = await run(supabase.from('question_vault').select('*').eq('id', 1).limit(1), 'Loading question vault');
   return rows[0] || null;
@@ -442,7 +519,14 @@ module.exports = {
   checkinStats,
   recentCheckins,
   getSettings,
+  getSetting,
   setSetting,
+  deleteSetting,
+  getBank,
+  listBanks,
+  insertBank,
+  updateBank,
+  deleteBank,
   listQuestionRows,
   createQuestion,
   updateQuestion,
@@ -450,6 +534,10 @@ module.exports = {
   deleteQuestion,
   moveQuestion,
   setLevelTimer,
+  insertImage,
+  getImages,
+  listImageMeta,
+  deleteImages,
   listLevels,
   createLevel,
   updateLevel,

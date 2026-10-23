@@ -2,8 +2,8 @@
 // Usage: node load-test.js [players]
 //   env SERVER_URL         default http://localhost:3001
 //       LOADTEST_USER / LOADTEST_PASSWORD           an admin or coordinator (runs the game)
-//       LOADTEST_QM_USER / LOADTEST_QM_PASSWORD / LOADTEST_QM_PIN
-//                          a quiz master; if set, unlocks the encrypted bank and loads questions
+//       LOADTEST_SET / LOADTEST_SET_PIN
+//                          a question set and its PIN; if set, the host loads that set (like the coordinator)
 // Note: results are saved to Supabase like a real game; run it against a test project
 // or delete the game rows afterwards.
 require('dotenv').config({ quiet: true });
@@ -61,15 +61,13 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   if ((await ask(host, 'join_role', 'host', login.token)).error) throw new Error('Host join failed');
   await hostAction('reset_game');
 
-  // The bank is encrypted: a quiz master unlocks it with their PIN and loads the questions.
-  if (process.env.LOADTEST_QM_USER) {
-    const qm = await post('/auth/login', { username: process.env.LOADTEST_QM_USER, password: process.env.LOADTEST_QM_PASSWORD });
-    if (!qm.token) throw new Error('Quiz master login failed');
-    const unlocked = await post('/auth/vault', { pin: process.env.LOADTEST_QM_PIN }, qm.token);
-    if (!unlocked.vaultUntil) throw new Error(`Unlock failed: ${unlocked.error}`);
-    const loaded = await post('/game/load-questions', {}, qm.token);
+  // Sets are encrypted: the host picks one and enters its PIN to load it (as the coordinator does).
+  if (process.env.LOADTEST_SET) {
+    const sets = await fetch(`${SERVER}/api/banks`, { headers: { Authorization: `Bearer ${login.token}` } }).then(r => r.json());
+    const set = Array.isArray(sets) && sets.find(s => s.name === process.env.LOADTEST_SET);
+    if (!set) throw new Error(`No question set called "${process.env.LOADTEST_SET}"`);
+    const loaded = await post('/game/load-questions', { bankId: set.id, pin: process.env.LOADTEST_SET_PIN }, login.token);
     if (!loaded.success) throw new Error(`Loading questions failed: ${loaded.error}`);
-    await post('/auth/logout', {}, qm.token);
   }
   const { count } = await hostAction('load_questions'); // reports what is loaded
   console.log(`Questions loaded: ${count}`);
@@ -109,6 +107,8 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   let questionsPlayed = 0;
 
   while (true) {
+    // An end-of-level cut waits for the coordinator; the load test confirms it as proposed.
+    if (state?.cutPending) await hostAction('cut_confirm');
     await hostAction('start_question');
     await wait(150);
     if (state.state === 'podium') break;

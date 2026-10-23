@@ -57,7 +57,7 @@ async function createSession(staffRow) {
   const tokenHash = sha256(token);
   const expiresAt = Date.now() + SESSION_TTL_MS;
   await store.insertSession({ token_hash: tokenHash, staff_id: staffRow.id, expires_at: new Date(expiresAt).toISOString() });
-  cache.set(tokenHash, { staff: toSessionStaff(staffRow), expiresAt, vaultUntil: 0, dek: null, cachedAt: Date.now() });
+  cache.set(tokenHash, { staff: toSessionStaff(staffRow), expiresAt, vaultUntil: 0, dek: null, bankId: null, cachedAt: Date.now() });
   return token;
 }
 
@@ -78,26 +78,29 @@ async function getSession(token) {
   const expiresAt = new Date(row.expires_at).getTime();
   if (expiresAt <= Date.now()) return null;
 
-  // An unlocked question key travels with the session, sealed under this session's token.
+  // The open question set's key travels with the session, sealed under this session's token.
   let vaultUntil = row.vault_until ? new Date(row.vault_until).getTime() : 0;
   let dek = null;
-  if (vaultUntil > Date.now() && row.vault_dek) {
-    try { dek = vault.openForSession(token, row.vault_dek); } catch { vaultUntil = 0; }
+  let bankId = null;
+  if (vaultUntil > Date.now() && row.vault_dek && row.vault_bank) {
+    try { dek = vault.openForSession(token, row.vault_dek); bankId = row.vault_bank; } catch { vaultUntil = 0; }
   } else {
     vaultUntil = 0;
   }
-  const session = { staff: toSessionStaff(row.staff), expiresAt, vaultUntil, dek, cachedAt: Date.now() };
+  const session = { staff: toSessionStaff(row.staff), expiresAt, vaultUntil, dek, bankId, cachedAt: Date.now() };
   cache.set(tokenHash, session);
   return { ...session, tokenHash, token };
 }
 
-async function unlockVault(session, dek) {
+// Open one question set for this session (replaces any set opened before).
+async function unlockVault(session, dek, bankId) {
   const vaultUntil = Date.now() + VAULT_TTL_MS;
-  await store.setSessionVault(session.tokenHash, new Date(vaultUntil).toISOString(), vault.sealForSession(session.token, dek));
+  await store.setSessionVault(session.tokenHash, new Date(vaultUntil).toISOString(), vault.sealForSession(session.token, dek), bankId);
   const s = cache.get(session.tokenHash);
   if (s) {
     s.vaultUntil = vaultUntil;
     s.dek = dek;
+    s.bankId = bankId;
   }
   return vaultUntil;
 }
@@ -107,12 +110,13 @@ async function lockVault(tokenHash) {
   if (s) {
     s.dek?.fill(0);
     s.dek = null;
+    s.bankId = null;
     s.vaultUntil = 0;
   }
-  await store.setSessionVault(tokenHash, null, null);
+  await store.setSessionVault(tokenHash, null, null, null);
 }
 
-const vaultOpen = s => !!s && !!s.dek && s.vaultUntil > Date.now();
+const vaultOpen = s => !!s && !!s.dek && !!s.bankId && s.vaultUntil > Date.now();
 
 // Wipe question keys from memory as soon as their unlock window ends.
 setInterval(() => {
@@ -120,6 +124,7 @@ setInterval(() => {
     if (s.dek && s.vaultUntil <= Date.now()) {
       s.dek.fill(0);
       s.dek = null;
+      s.bankId = null;
       s.vaultUntil = 0;
     }
   }
@@ -161,7 +166,7 @@ function requireStaff(...roles) {
 
 function requireVault(req, res, next) {
   if (!vaultOpen(req.session)) {
-    return res.status(423).json({ error: 'Question bank is locked — enter your quiz master PIN', locked: true });
+    return res.status(423).json({ error: 'Open a question set with its PIN first', locked: true });
   }
   next();
 }

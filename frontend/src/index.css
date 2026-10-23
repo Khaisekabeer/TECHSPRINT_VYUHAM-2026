@@ -167,6 +167,7 @@ button { font-family: inherit; touch-action: manipulation; }
   color: var(--bone-dim);
 }
 .brand-mark-lg { width: 44px; height: 44px; }
+.brand-logo { height: 1.5em; width: auto; flex-shrink: 0; }
 
 /* ─── Surfaces ─────────────────────────────────────────────────────────────── */
 .panel {
