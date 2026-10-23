@@ -19,7 +19,7 @@ export function BrandMark({ className = 'brand-mark' }: { className?: string }) 
 export function Brand({ size, event = true }: { size?: string; event?: boolean }) {
   return (
     <span className="brand" style={size ? { fontSize: size } : undefined}>
-      <BrandMark />
+      <img src="/vyuham-logo.png" alt="Vyuham" className="brand-logo" />
       TechSprint
       {event && <span className="brand-event">Vyuham '26</span>}
     </span>
