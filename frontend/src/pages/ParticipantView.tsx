@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import React, { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Avatar, Burst, ComicBg, Rise, Spinner, TimerRing, VyuhamLogo, OPTION_LABELS } from '../components/ui';
+import { Brand, Rings, Rise, Spinner, TimerRing, OPTION_LABELS } from '../components/ui';
 import { API_BASE } from '../lib/api';
-import { avatarChoices } from '../lib/avatar';
 import confetti from 'canvas-confetti';
 
 const TOKEN_KEY = 'vyuham_player_token';
@@ -15,36 +14,21 @@ const storage = {
   clear: () => { try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ } },
 };
 
-const screenPad: CSSProperties = { width: '100%', maxWidth: 460, margin: '0 auto', padding: '0 20px' };
-
-// A phone screen: paper backdrop (rays, halftone, rings) + content. Same look for every level.
-function Screen({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return (
-    <div className="stage" data-theme="mono" style={style}>
-      <ComicBg />
-      {children}
-    </div>
-  );
-}
+const centerRings: CSSProperties = { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
+const screenPad: CSSProperties = { width: '100%', maxWidth: 440, margin: '0 auto', padding: '0 22px' };
 
 export default function ParticipantView() {
-  const { socket, isConnected, serverUrl } = useSocket();
+  const { socket, isConnected } = useSocket();
   const [name, setName] = useState('');
   const [ticketId, setTicketId] = useState('');
   // Continuing on a new device: the server asks for the last 4 digits of the registered phone.
   const [needsVerify, setNeedsVerify] = useState(false);
   const [verify, setVerify] = useState('');
-  // Character picked on the join screen.
-  const [avatarOptions, setAvatarOptions] = useState<string[]>(() => avatarChoices(12));
-  const [avatar, setAvatar] = useState('');
   const [requireCheckin, setRequireCheckin] = useState(true);
   const [joining, setJoining] = useState(false);
   const [gameState, setGameState] = useState<any>(null);
   const [playerInfo, setPlayerInfo] = useState<any>(null);
   const [answerResult, setAnswerResult] = useState<any>(null);
-  // Our place among those still in, and whether we're below the level's cut line right now.
-  const [standing, setStanding] = useState<{ rank: number; of: number; atRisk?: boolean; cutLabel?: string | null } | null>(null);
-  const [lastCut, setLastCut] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [rejoining, setRejoining] = useState(() => !!storage.get());
@@ -55,7 +39,7 @@ export default function ParticipantView() {
     gameState?.serverNow,
   );
   const maxTime = gameState?.currentQuestion?.timeLimit || 20;
-  const chosenAvatar = avatar || avatarOptions[0];
+  const level = gameState?.currentLevel ?? 1;
 
   // Clear per-question UI only when a *new* question starts (not on repeated state broadcasts).
   const applyState = (state: any) => {
@@ -64,7 +48,6 @@ export default function ParticipantView() {
       questionIndexRef.current = state.currentQuestionIndex;
       setSelectedOption(null);
       setAnswerResult(null);
-      setLastCut(null);
       setMessage('');
     }
   };
@@ -74,7 +57,6 @@ export default function ParticipantView() {
     setPlayerInfo(null);
     setGameState(null);
     setAnswerResult(null);
-    setStanding(null);
     setSelectedOption(null);
     questionIndexRef.current = null;
     setMessage(reason);
@@ -87,11 +69,10 @@ export default function ParticipantView() {
       setTimeout(() => socket.connect(), 500); // the server closed our connection
     });
     socket.on('game_reset', () => leaveGame('The game was reset. Join again to play.'));
-    // Our own result for the question that just ended (and our place among those still in).
+    // Our own result for the question that just ended.
     socket.on('my_result', (res: any) => {
       setPlayerInfo(res.player);
       setAnswerResult(res.myAnswer);
-      setStanding(res.standing ?? null);
       if (res.myAnswer?.isCorrect) {
         confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 }, colors: ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'] });
         if (navigator.vibrate) navigator.vibrate(150);
@@ -99,23 +80,14 @@ export default function ParticipantView() {
         if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       }
     });
-    // Whether a cut happened at this reveal ("You made the cut!").
-    socket.on('question_result', (r: any) => setLastCut(r?.elimination ?? null));
     // Status changes outside a reveal (e.g. disqualified by the host).
-    socket.on('player_update', (res: any) => {
-      setPlayerInfo(res.player);
-      if (res.standing !== undefined) setStanding(res.standing);
-    });
-    // The coordinator confirmed the end-of-level cut ("You made the cut!" if we're still in).
-    socket.on('cut_result', (data: any) => setLastCut(data.elimination));
+    socket.on('player_update', (res: any) => setPlayerInfo(res.player));
     return () => {
       socket.off('game_state');
       socket.off('kicked');
       socket.off('game_reset');
       socket.off('my_result');
-      socket.off('question_result');
       socket.off('player_update');
-      socket.off('cut_result');
     };
   }, [socket]);
 
@@ -165,8 +137,8 @@ export default function ParticipantView() {
     setMessage('');
     setJoining(true);
     const payload = requireCheckin
-      ? { ticketId: ticketId.trim(), name: name.trim(), avatar: chosenAvatar, ...(needsVerify ? { verify: verify.trim() } : {}) }
-      : { name: name.trim(), avatar: chosenAvatar };
+      ? { ticketId: ticketId.trim(), name: name.trim(), ...(needsVerify ? { verify: verify.trim() } : {}) }
+      : { name: name.trim() };
     socket.emit('join_game', payload, (res: any) => {
       setJoining(false);
       if (res.success) {
@@ -195,7 +167,6 @@ export default function ParticipantView() {
     });
   };
 
-  const center: CSSProperties = { ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 18 };
 
   // ─── Connecting ────────────────────────────────────────────────────────────
   if (!isConnected || rejoining) {
@@ -205,88 +176,103 @@ export default function ParticipantView() {
   // ─── Join ──────────────────────────────────────────────────────────────────
   if (!playerInfo) {
     return (
-      <Screen>
-        <header style={{ ...screenPad, paddingTop: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <VyuhamLogo height={46} />
-          <span className="comic-badge light" style={{ fontSize: '0.8rem' }}>Vyuham '26</span>
+      <div className="stage stage-grid" data-level="1">
+        <Rings size="min(150vw, 760px)" style={{ top: '-16%', left: '50%', transform: 'translateX(-50%)' }} />
+        <header style={{ ...screenPad, paddingTop: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Brand event={false} />
+          <span className="eyebrow">Vyuham '26</span>
         </header>
 
-        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', paddingBottom: 28, gap: 18 }}>
-          <Rise style={{ alignSelf: 'center' }}>
-            <Burst style={{ padding: '30px 34px 34px' }}>
-              <h1 className="comic-title slam" style={{ fontSize: 'clamp(3.2rem, 17vw, 5rem)', textAlign: 'center' }}>Tech<br />Sprint</h1>
-            </Burst>
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', paddingBottom: 36 }}>
+          <Rise d={60} className="eyebrow eyebrow-heat">● Live tech quiz</Rise>
+          <Rise d={140} as="h1" className="display" style={{ fontSize: 'clamp(4.2rem, 23vw, 7rem)', margin: '14px 0 16px' }}>
+            Tech<br />Sprint
+          </Rise>
+          <Rise d={240} as="p" className="dim" style={{ margin: '0 0 28px', fontSize: '1rem', lineHeight: 1.5 }}>
+            Round by round, the stakes rise. Answer fast — the quickest minds take the lead.
           </Rise>
 
-          <Rise d={200}>
-            <form onSubmit={handleJoin} className="comic-panel" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '18px 16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span className="comic-text" style={{ fontSize: '1.05rem' }}>Pick your character</span>
-                <button type="button" className="chip" onClick={() => { setAvatarOptions(avatarChoices(12)); setAvatar(''); }}>↻ Shuffle</button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 6 }} role="radiogroup" aria-label="Character">
-                {avatarOptions.map(id => (
-                  <button key={id} type="button" role="radio" aria-checked={chosenAvatar === id}
-                    className={`avatar-pick${chosenAvatar === id ? ' picked' : ''}`} onClick={() => setAvatar(id)}>
-                    <Avatar id={id} size="100%" style={{ aspectRatio: '1', display: 'block' }} />
-                  </button>
-                ))}
-              </div>
-
+          <Rise d={340}>
+            <form onSubmit={handleJoin} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {requireCheckin && (
                 <>
-                  <label htmlFor="player-ticket" className="eyebrow" style={{ marginTop: 4 }}>Ticket ID (on your pass)</label>
+                  <label htmlFor="player-ticket" className="eyebrow">Ticket ID (on your pass)</label>
                   <input
-                    id="player-ticket" className="field" type="text" value={ticketId}
+                    id="player-ticket"
+                    className="field"
+                    type="text"
+                    value={ticketId}
                     onChange={(e) => { setTicketId(e.target.value.toUpperCase()); setNeedsVerify(false); setVerify(''); }}
-                    maxLength={40} placeholder="e.g. MMP49081761" autoCapitalize="characters" autoComplete="off" spellCheck={false} required
+                    maxLength={40}
+                    placeholder="e.g. MMP49081761"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    spellCheck={false}
+                    required
                     style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.04em' }}
                   />
                   {needsVerify && (
                     <>
                       <label htmlFor="player-verify" className="eyebrow">Last 4 digits of your registered phone</label>
                       <input
-                        id="player-verify" className="field" type="text" inputMode="numeric" pattern="[0-9]{4}" value={verify}
+                        id="player-verify"
+                        className="field"
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]{4}"
+                        value={verify}
                         onChange={(e) => setVerify(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        placeholder="••••" autoComplete="off" required autoFocus
+                        placeholder="••••"
+                        autoComplete="off"
+                        required
+                        autoFocus
                         style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.3em' }}
                       />
                     </>
                   )}
                 </>
               )}
-              <label htmlFor="player-name" className="eyebrow">{requireCheckin ? 'Leaderboard name (optional)' : 'Your call sign'}</label>
+              <label htmlFor="player-name" className="eyebrow">
+                {requireCheckin ? 'Leaderboard name (optional)' : 'Your call sign'}
+              </label>
               <input
-                id="player-name" className="field" type="text" value={name} onChange={(e) => setName(e.target.value)} maxLength={20}
-                placeholder={requireCheckin ? 'Defaults to your first name' : 'Name or nickname'} autoComplete="nickname" required={!requireCheckin}
+                id="player-name"
+                className="field"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={20}
+                placeholder={requireCheckin ? 'Defaults to your first name' : 'Name or nickname'}
+                autoComplete="nickname"
+                required={!requireCheckin}
               />
               <button type="submit" className="btn btn-heat btn-lg btn-block" disabled={joining}>
-                {joining ? 'Checking ticket…' : "Let's play!"}
+                {joining ? 'Checking ticket…' : 'Join game →'}
               </button>
               {message && <p role="alert" className="error-text">{message}</p>}
             </form>
           </Rise>
         </main>
-      </Screen>
+      </div>
     );
   }
 
   // ─── Lobby ─────────────────────────────────────────────────────────────────
   if (!gameState || gameState.state === 'lobby') {
     return (
-      <Screen>
-        <header style={{ ...screenPad, paddingTop: 18 }}><VyuhamLogo height={42} /></header>
-        <main style={center}>
-          <Rise><span className="comic-badge">You're in!</span></Rise>
-          <div className="pop"><Avatar id={playerInfo.avatar} size={150} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} /></div>
-          <Burst style={{ padding: '18px 30px 22px' }}>
-            <h1 className="comic-title" style={{ fontSize: 'clamp(2.4rem, 13vw, 4rem)', overflowWrap: 'anywhere' }}>{playerInfo.name}</h1>
-          </Burst>
-          <Rise d={300} as="p" className="comic-text" style={{ margin: 0, fontSize: '1.15rem', lineHeight: 1.4 }}>
-            Waiting for the host to begin.<br />Keep your eyes on the big screen!
+      <div className="stage stage-grid" data-level="1">
+        <Rings size="min(160vw, 720px)" style={centerRings} />
+        <header style={{ ...screenPad, paddingTop: 22 }}><Brand /></header>
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise className="eyebrow eyebrow-heat">You're on the starting line</Rise>
+          <h1 className="display slam" style={{ fontSize: 'clamp(3.4rem, 18vw, 6rem)', margin: '16px 0 18px', overflowWrap: 'anywhere', ['--d' as string]: '120ms' }}>
+            {playerInfo.name}
+          </h1>
+          <Rise d={300} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
+            Waiting for the host to begin.<br />Keep your eyes on the big screen.
           </Rise>
         </main>
-      </Screen>
+      </div>
     );
   }
 
@@ -295,44 +281,42 @@ export default function ParticipantView() {
     const exit = playerInfo.exit || {};
     const disqualified = playerInfo.status === 'disqualified';
     return (
-      <Screen>
-        <main style={center}>
-          <Rise><span className="comic-badge">{disqualified ? 'Disqualified' : `Out after round ${exit.round ?? ''}`}</span></Rise>
-          <Avatar id={playerInfo.avatar} size={110} style={{ filter: 'grayscale(0.6)', border: '3px solid var(--t-ink, #111)' }} />
-          <Burst style={{ padding: '20px 28px 24px' }}>
-            <h1 className="comic-title" style={{ fontSize: 'clamp(2.2rem, 11vw, 3.4rem)', textAlign: 'center' }}>
-              {disqualified ? 'Disqualified' : "Didn't make the cut"}
-            </h1>
-          </Burst>
-          <div className="comic-panel" style={{ padding: '14px 18px', lineHeight: 1.5 }}>
+      <div className="stage stage-grid" style={{ ['--heat' as string]: disqualified ? 'var(--bad)' : 'var(--bone-dim)' }}>
+        <Rings size="min(170vw, 760px)" style={centerRings} />
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise className="eyebrow eyebrow-heat">{disqualified ? 'Disqualified' : `Out after round ${exit.round ?? ''}`}</Rise>
+          <h1 className="display heat slam" style={{ fontSize: 'clamp(3.2rem, 16vw, 5.5rem)', margin: '12px 0 14px' }}>
+            {disqualified ? 'Disqualified' : "Didn't make the cut"}
+          </h1>
+          <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
             {disqualified
               ? (exit.note || 'The quiz host removed you from the game.')
               : <>{exit.note}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.</>}
-          </div>
-          <p className="comic-text" style={{ margin: 0, fontSize: '1rem' }}>
-            {disqualified ? 'Speak to the quiz desk if you think this is a mistake' : 'Stay and watch the rest on the big screen!'}
-          </p>
+          </Rise>
+          <Rise d={420} as="p" className="eyebrow" style={{ marginTop: 32 }}>
+            {disqualified ? 'Speak to the quiz desk if you think this is a mistake' : 'Stay and watch the rest on the big screen'}
+          </Rise>
         </main>
-      </Screen>
+      </div>
     );
   }
 
   // ─── Level intro ───────────────────────────────────────────────────────────
   if (gameState.state === 'intro') {
-    const config = gameState.levelConfig || {};
     return (
-      <Screen>
-        <main style={center}>
-          <Rise><span className="comic-badge light">Round {gameState.currentLevel} of {gameState.totalLevels}</span></Rise>
-          <Burst style={{ padding: '34px 30px 40px' }}>
-            <h1 className="comic-title slam" style={{ fontSize: 'clamp(2.6rem, 14vw, 4.4rem)', textAlign: 'center' }}>{config.name}</h1>
-          </Burst>
-          <Rise d={350} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-            <span className="comic-badge">× {config.multiplier} points</span>
-            {config.cut && <span className="comic-badge light">✂ {config.cut.label}</span>}
+      <div className="stage stage-grid" data-level={level}>
+        <Rings size="min(170vw, 760px)" style={centerRings} />
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise className="eyebrow">Level</Rise>
+          <div className="display heat slam" style={{ fontSize: 'clamp(9rem, 55vw, 14rem)', lineHeight: 0.8, margin: '8px 0 6px' }}>
+            {String(level).padStart(2, '0')}
+          </div>
+          <Rise d={250} as="h2" className="display" style={{ fontSize: 'clamp(2.4rem, 12vw, 3.6rem)' }}>{gameState.levelConfig?.name}</Rise>
+          <Rise d={400} style={{ marginTop: 26 }}>
+            <span className="chip chip-heat">× {gameState.levelConfig?.multiplier} points</span>
           </Rise>
         </main>
-      </Screen>
+      </div>
     );
   }
 
@@ -341,25 +325,22 @@ export default function ParticipantView() {
     const q = gameState.currentQuestion;
     const timeUp = timeLeft <= 0;
     return (
-      <Screen>
-        <header style={{ ...screenPad, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, paddingBottom: 8 }}>
-          <span className="comic-badge light" style={{ fontSize: '1.2rem' }}>
-            Q{gameState.currentQuestionIndex + 1}<span style={{ opacity: 0.5 }}>/{gameState.totalQuestions}</span>
-          </span>
-          <span className="comic-badge" style={{ fontSize: '0.75rem', maxWidth: '40%', overflow: 'hidden', textOverflow: 'ellipsis' }}>{gameState.levelConfig?.name}</span>
-          <div className="timer-disc"><TimerRing value={timeLeft} max={maxTime} size={58} stroke={4} /></div>
+      <div className="stage" data-level={level}>
+        <header style={{ ...screenPad, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 22px', borderBottom: '1px solid var(--line)' }}>
+          <div>
+            <div className="eyebrow">Question</div>
+            <div className="display" style={{ fontSize: '2.2rem', marginTop: 4 }}>
+              {gameState.currentQuestionIndex + 1}<span className="faint" style={{ fontSize: '1.3rem' }}> / {gameState.totalQuestions}</span>
+            </div>
+          </div>
+          <span className="chip chip-heat">Lvl {level} · {gameState.levelConfig?.name}</span>
+          <TimerRing value={timeLeft} max={maxTime} size={60} />
         </header>
 
-        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 8, paddingBottom: 16, gap: 10 }}>
-          {q?.hasImage ? (
-            <img key={gameState.currentQuestionIndex} className="q-image pop" alt="Question picture"
-              src={`${serverUrl}/live-image/${gameState.currentQuestionIndex}?t=${gameState.questionStartTime}`}
-              style={{ height: 'min(30vh, 260px)' }} />
-          ) : (
-            <p className="comic-text" style={{ margin: '0 0 4px', textAlign: 'center', fontSize: '1rem' }}>Read the question on the big screen</p>
-          )}
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 18, paddingBottom: 18 }}>
+          <p className="eyebrow" style={{ margin: '0 0 14px', textAlign: 'center' }}>Read the question on the big screen</p>
 
-          <div style={{ flex: 1, maxHeight: 520, display: 'grid', gridAutoRows: 'minmax(60px, 1fr)', gap: 10 }}>
+          <div style={{ flex: 1, maxHeight: 560, display: 'grid', gridAutoRows: 'minmax(68px, 1fr)', gap: 10 }}>
             {q?.options?.map((opt: string, idx: number) => {
               const isSelected = selectedOption === opt;
               const isDisabled = selectedOption !== null || timeUp;
@@ -367,8 +348,14 @@ export default function ParticipantView() {
               if (isSelected) cls += ' selected';
               else if (isDisabled) cls += ' faded';
               return (
-                <button key={idx} data-opt={idx} className={cls} style={{ ['--d' as string]: `${idx * 70}ms` }}
-                  onClick={() => handleAnswer(opt)} disabled={isDisabled}>
+                <button
+                  key={idx}
+                  data-opt={idx}
+                  className={cls}
+                  style={{ ['--d' as string]: `${idx * 70}ms` }}
+                  onClick={() => handleAnswer(opt)}
+                  disabled={isDisabled}
+                >
                   <span className="opt-label">{OPTION_LABELS[idx]}</span>
                   <span className="opt-text">{opt}</span>
                 </button>
@@ -376,14 +363,17 @@ export default function ParticipantView() {
             })}
           </div>
 
-          {message && <p role="alert" className="error-text" style={{ marginTop: 6 }}>{message}</p>}
-          {(selectedOption || timeUp) && (
-            <p className="comic-text" style={{ margin: 0, textAlign: 'center', fontSize: '1.05rem' }}>
-              {selectedOption ? '● Locked in — wait for the reveal!' : "Time's up — wait for the reveal"}
-            </p>
-          )}
+          {message && <p role="alert" className="error-text" style={{ marginTop: 14 }}>{message}</p>}
+
+          <div style={{ marginTop: 'auto', paddingTop: 20, textAlign: 'center' }}>
+            {(selectedOption || timeUp) && (
+              <p className="eyebrow" style={{ margin: 0 }}>
+                {selectedOption ? '● Answer locked in — awaiting reveal' : "Time's up — awaiting reveal"}
+              </p>
+            )}
+          </div>
         </main>
-      </Screen>
+      </div>
     );
   }
 
@@ -394,26 +384,29 @@ export default function ParticipantView() {
     const ranked = board.filter(p => p.status !== 'disqualified');
     const rank = disqualified ? 0 : ranked.findIndex(p => p.id === playerInfo.id) + 1;
     const me = ranked[rank - 1];
-    const medal = disqualified ? 'Disqualified' : rank === 1 ? 'Champion!' : rank === 2 ? 'Runner-up!' : rank === 3 ? 'Third place!' : 'Final standing';
+    const medal = disqualified ? 'Disqualified' : rank === 1 ? 'Champion' : rank === 2 ? 'Runner-up' : rank === 3 ? 'Third place' : 'Final standing';
     return (
-      <Screen>
-        <main style={center}>
-          <Rise><span className="comic-badge">{medal}</span></Rise>
-          <Avatar id={playerInfo.avatar} size={120} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} />
+      <div className="stage stage-grid">
+        <Rings size="min(170vw, 760px)" style={centerRings} />
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise className="eyebrow eyebrow-heat">{medal}</Rise>
           {rank > 0 ? (
             <>
-              <Burst style={{ padding: '24px 40px 30px' }}>
-                <div className="comic-title slam" style={{ fontSize: 'clamp(5rem, 30vw, 8rem)' }}><span style={{ fontSize: '0.5em' }}>#</span>{rank}</div>
-              </Burst>
-              <span className="comic-badge light">{me?.score ?? 0} points · of {ranked.length}</span>
+              <div className="display heat slam" style={{ fontSize: 'clamp(9rem, 50vw, 13rem)', lineHeight: 0.85, margin: '10px 0' }}>
+                <span style={{ fontSize: '0.45em', verticalAlign: 'top' }}>#</span>{rank}
+              </div>
+              <Rise d={300} as="p" className="dim" style={{ margin: 0 }}>of {ranked.length} players</Rise>
+              <Rise d={420} className="panel bracketed" style={{ marginTop: 28, padding: '16px 28px' }}>
+                <div className="eyebrow">Final score</div>
+                <div className="display tabular" style={{ fontSize: '2.8rem', marginTop: 6 }}>{me?.score ?? 0}</div>
+              </Rise>
             </>
           ) : (
-            <h1 className="comic-title" style={{ fontSize: '3rem' }}>Game over</h1>
+            <h1 className="display" style={{ fontSize: '4rem', marginTop: 12 }}>Game over</h1>
           )}
-          <VyuhamLogo height={54} style={{ marginTop: 10 }} />
-          <p className="comic-text" style={{ margin: 0 }}>Thanks for playing TechSprint · Vyuham '26</p>
+          <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 32 }}>Thanks for playing TechSprint · Vyuham '26</Rise>
         </main>
-      </Screen>
+      </div>
     );
   }
 
@@ -421,58 +414,39 @@ export default function ParticipantView() {
   if (gameState.state === 'leaderboard') {
     const isCorrect = answerResult?.isCorrect;
     const notAnswered = !answerResult;
-    const headline = notAnswered ? 'Too slow!' : isCorrect ? 'Correct!' : 'Wrong!';
-    const cutLabel = lastCut ? null : standing?.cutLabel;
-    const safe = standing && cutLabel ? !standing.atRisk : null;
+    const tone = notAnswered ? 'var(--bone-dim)' : isCorrect ? 'var(--good)' : 'var(--bad)';
+    const headline = notAnswered ? 'Too slow' : isCorrect ? 'Correct' : 'Wrong';
     return (
-      <Screen>
-        <main style={center}>
-          <Burst style={{ padding: '26px 34px 30px' }}>
-            <div style={{ textAlign: 'center' }}>
-              <div className="comic-title pop" style={{ fontSize: '4.2rem', color: notAnswered ? '#8a8a8a' : isCorrect ? '#15803d' : '#b91c1c' }} aria-hidden="true">
-                {notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
-              </div>
-              <h1 className="comic-title slam" style={{ fontSize: 'clamp(2.6rem, 14vw, 4rem)', color: notAnswered ? '#8a8a8a' : isCorrect ? '#15803d' : '#b91c1c' }}>{headline}</h1>
-            </div>
-          </Burst>
+      <div className="stage" data-level={level} style={{ ['--heat' as string]: tone }}>
+        <Rings size="min(170vw, 760px)" style={{ ...centerRings, top: '42%' }} />
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <div className="display heat pop" style={{ fontSize: '5.5rem', lineHeight: 1 }} aria-hidden="true">
+            {notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
+          </div>
+          <h1 className="display heat slam" style={{ fontSize: 'clamp(4rem, 22vw, 6.5rem)', margin: '8px 0 10px', ['--d' as string]: '80ms' }}>{headline}</h1>
 
           {isCorrect ? (
-            <Rise d={250} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-              <span className="comic-badge" style={{ fontSize: '1.4rem' }}>+{answerResult.points}</span>
-              {answerResult.badge && <span className="comic-badge light">★ {answerResult.badge}</span>}
-            </Rise>
+            <>
+              <Rise d={250} className="display tabular" style={{ fontSize: '2.6rem' }}>+{answerResult.points}</Rise>
+              {answerResult.badge && (
+                <Rise d={380} style={{ marginTop: 16 }}><span className="chip chip-gold">★ {answerResult.badge}</span></Rise>
+              )}
+            </>
           ) : (
-            <Rise d={250} as="p" className="comic-text" style={{ margin: 0, fontSize: '1.05rem' }}>
-              {notAnswered ? "You didn't answer in time." : '0 points this time. Streak reset.'}
+            <Rise d={250} as="p" className="dim" style={{ margin: 0 }}>
+              {notAnswered ? "You didn't answer in time." : '0 points this round. Streak reset.'}
             </Rise>
           )}
 
-          {lastCut && (
-            <Rise d={380}><span className="comic-badge" style={{ fontSize: '1.1rem' }}>🎉 You made the cut! {lastCut.label}</span></Rise>
-          )}
-
-          <Rise d={480} className="comic-panel" style={{ width: '100%', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
-            <Avatar id={playerInfo.avatar} size={52} />
-            <div style={{ flex: 1, textAlign: 'left' }}>
-              <div className="eyebrow" style={{ color: '#555' }}>Your total</div>
-              <div className="comic-text tabular" style={{ fontSize: '2rem', lineHeight: 1 }}>{playerInfo.score ?? 0}</div>
+          <Rise d={480} className="panel bracketed" style={{ marginTop: 40, padding: '16px 28px', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span className="eyebrow">Your total</span>
+              <span className="display tabular" style={{ fontSize: '2.2rem' }}>{playerInfo.score ?? 0}</span>
             </div>
-            {standing && (
-              <div style={{ textAlign: 'right' }}>
-                <div className="eyebrow" style={{ color: '#555' }}>Rank</div>
-                <div className="comic-text tabular" style={{ fontSize: '2rem', lineHeight: 1 }}>#{standing.rank}<span style={{ fontSize: '1rem', opacity: 0.6 }}>/{standing.of}</span></div>
-              </div>
-            )}
           </Rise>
-          {safe !== null && (
-            <Rise d={560}>
-              <span className="comic-badge light" style={{ background: safe ? '#dcfce7' : '#fee2e2' }}>
-                {safe ? `✓ Above the line — ${cutLabel}` : `⚠ Below the line — ${cutLabel}`}
-              </span>
-            </Rise>
-          )}
+          <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 18 }}>Standings are on the big screen</Rise>
         </main>
-      </Screen>
+      </div>
     );
   }
 

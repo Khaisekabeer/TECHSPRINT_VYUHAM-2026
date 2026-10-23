@@ -14,11 +14,12 @@ async function resolveSocketUrl(): Promise<string> {
   return import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:3001` : window.location.origin;
 }
 
-let socketPromise: Promise<{ socket: Socket; url: string }> | null = null;
+let socketPromise: Promise<Socket> | null = null;
 const getSocket = () => {
-  socketPromise ??= resolveSocketUrl().then(url => ({
-    url: url.replace(/\/+$/, ''),
-    socket: io(url, { reconnection: true, reconnectionAttempts: Infinity, reconnectionDelay: 1000 }),
+  socketPromise ??= resolveSocketUrl().then(url => io(url, {
+    reconnection: true,
+    reconnectionAttempts: Infinity,
+    reconnectionDelay: 1000,
   }));
   return socketPromise;
 };
@@ -26,8 +27,6 @@ const getSocket = () => {
 interface SocketContextType {
   socket: Socket;
   isConnected: boolean;
-  /** Base address of the live game server (question images are served from here). */
-  serverUrl: string;
 }
 
 const SocketContext = createContext<SocketContextType | null>(null);
@@ -35,15 +34,13 @@ const SocketContext = createContext<SocketContextType | null>(null);
 export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  const [serverUrl, setServerUrl] = useState('');
 
   useEffect(() => {
     let current: Socket | null = null;
     const onConnect = () => setIsConnected(true);
     const onDisconnect = () => setIsConnected(false);
-    getSocket().then(({ socket: s, url }) => {
+    getSocket().then(s => {
       current = s;
-      setServerUrl(url);
       s.on('connect', onConnect);
       s.on('disconnect', onDisconnect);
       // The socket may have connected before these listeners were attached.
@@ -59,7 +56,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   if (!socket) return <Spinner label="Loading…" />;
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected, serverUrl }}>
+    <SocketContext.Provider value={{ socket, isConnected }}>
       {children}
     </SocketContext.Provider>
   );

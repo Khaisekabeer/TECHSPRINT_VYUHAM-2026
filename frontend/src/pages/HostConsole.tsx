@@ -1,9 +1,9 @@
 import { useState, useEffect, type ReactNode, type CSSProperties } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Avatar, Brand, Panel as SharedPanel, TimerRing, Toast } from '../components/ui';
+import { Brand, Panel as SharedPanel, TimerRing, Toast } from '../components/ui';
 import StaffLogin from '../components/StaffLogin';
-import { api, CAN_HOST, ROLE_LABEL, session, signOut, useStaffSession } from '../lib/api';
+import { CAN_HOST, ROLE_LABEL, session, signOut, useStaffSession } from '../lib/api';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby',
@@ -14,18 +14,16 @@ const PHASE_LABEL: Record<string, string> = {
 };
 
 export default function HostConsole() {
-  const { socket, isConnected, serverUrl } = useSocket();
+  const { socket, isConnected } = useSocket();
   const current = useStaffSession();
   const token = current && CAN_HOST.includes(current.staff.role) ? current.token : null;
-  const [loaded, setLoaded] = useState<{ count: number; by?: string; bank?: { id: string; name: string } | null } | null>(null);
+  const [loaded, setLoaded] = useState<{ count: number; by?: string } | null>(null);
   const [gameState, setGameState] = useState<any>(null);
   const [players, setPlayers] = useState<any[]>([]);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
   const [toast, setToast] = useState('');
   // The latest cut after a level: who advanced and who was eliminated.
   const [cut, setCut] = useState<any>(null);
-  // End-of-level cut waiting for review: { label, levelName, advance: [...], out: [...] }.
-  const [pendingCut, setPendingCut] = useState<any>(null);
 
   const timeLeft = useCountdown(
     gameState?.state === 'question' ? gameState.questionEndsAt : null,
@@ -49,8 +47,6 @@ export default function HostConsole() {
     socket.on('answer_count', setAnswerCount);
     socket.on('questions_loaded', setLoaded);
     socket.on('question_result', (r: any) => { if (r?.elimination) setCut(r.elimination); });
-    socket.on('cut_pending', setPendingCut);
-    socket.on('cut_result', (data: any) => setCut(data.elimination));
     socket.on('game_reset', () => setCut(null));
     socket.emit('join_role', 'host', token, (res: any) => {
       if (res?.error) logout(res.error);
@@ -61,8 +57,6 @@ export default function HostConsole() {
       socket.off('answer_count');
       socket.off('questions_loaded');
       socket.off('question_result');
-      socket.off('cut_pending');
-      socket.off('cut_result');
       socket.off('game_reset');
     };
   }, [socket, token, isConnected]);
@@ -82,18 +76,6 @@ export default function HostConsole() {
     if (confirm(`Remove ${name} from the lobby?`)) hostAction('kick_player', { playerId: id });
   };
   // Once the game is running, removing a player is a disqualification, kept on record with a reason.
-  // Eliminate a player directly (e.g. a panel decision) — recorded as "eliminated by host", not a DQ.
-  const eliminate = (id: string, name: string) => {
-    const reason = prompt(`Eliminate ${name}? They keep their rank among the eliminated.`, 'Eliminated by the quiz host');
-    if (reason === null) return;
-    hostAction('eliminate_player', { playerId: id, reason: reason.trim() }, () => showToast(`${name} eliminated`));
-  };
-  const adjustCut = (id: string, keep: boolean) => hostAction('cut_adjust', { playerId: id, keep });
-  const confirmCut = () => {
-    if (!pendingCut) return;
-    if (!confirm(`Confirm the cut? ${pendingCut.out.length} player(s) will be eliminated and ${pendingCut.advance.length} go through.`)) return;
-    hostAction('cut_confirm', null, (r: any) => showToast(`Cut confirmed — ${r.eliminated} eliminated`));
-  };
   const disqualify = (id: string, name: string) => {
     const reason = prompt(`Disqualify ${name}? They stay on record with this reason (e.g. "Using another device").`, 'Malpractice');
     if (reason === null) return;
@@ -175,7 +157,7 @@ export default function HostConsole() {
                 <div className="display heat" style={{ fontSize: 'clamp(2.6rem, 5vw, 3.8rem)', marginTop: 8 }}>{PHASE_LABEL[phase] ?? '—'}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <span className="chip chip-heat">Round {level}{gameState?.totalLevels ? `/${gameState.totalLevels}` : ''} · {gameState?.levelConfig?.name ?? '—'}</span>
+                <span className="chip chip-heat">Level {level} · {gameState?.levelConfig?.name ?? '—'}</span>
                 <div className="display tabular" style={{ fontSize: '2.4rem', marginTop: 10 }}>
                   {questionNumber}<span className="faint" style={{ fontSize: '1.4rem' }}> / {total || '—'}</span>
                 </div>
@@ -199,9 +181,6 @@ export default function HostConsole() {
             )}
           </Panel>
 
-          {/* Load a question set (lobby only): pick the set, enter its PIN */}
-          {phase === 'lobby' && <LoadSet loaded={loaded} onLoaded={msg => showToast(msg)} />}
-
           {/* Next move */}
           <Panel>
             <div className="eyebrow" style={{ marginBottom: 16 }}>Next move</div>
@@ -213,18 +192,15 @@ export default function HostConsole() {
                   </button>
                   <span className="dim" style={{ fontSize: '0.85rem' }}>
                     {total === 0
-                      ? 'Load a question set first (above): pick the set and enter its PIN from the quiz master.'
-                      : `${loaded?.bank?.name ? `"${loaded.bank.name}" · ` : ''}${total} questions · ${players.length === 0 ? 'waiting for players to join…' : `${players.length} players`}`}
+                      ? 'Waiting for the quiz master to load the questions (Admin → Questions → Load into game).'
+                      : `${total} questions loaded${loaded?.by ? ` by ${loaded.by}` : ''} · ${players.length === 0 ? 'waiting for players to join…' : `${players.length} players`}`}
                   </span>
                 </>
               )}
               {(phase === 'intro' || phase === 'leaderboard') && (
-                <>
-                  <button className="btn btn-heat btn-lg" onClick={startQuestion} disabled={!!pendingCut}>
-                    {isFinalReveal ? 'Show final results →' : phase === 'intro' ? 'Launch first question →' : 'Next question →'}
-                  </button>
-                  {pendingCut && <span className="dim" style={{ fontSize: '0.85rem' }}>Review and confirm the cut below first.</span>}
-                </>
+                <button className="btn btn-heat btn-lg" onClick={startQuestion}>
+                  {isFinalReveal ? 'Show final results →' : phase === 'intro' ? 'Launch first question →' : 'Next question →'}
+                </button>
               )}
               {phase === 'question' && (
                 <>
@@ -238,16 +214,11 @@ export default function HostConsole() {
             </div>
           </Panel>
 
-          {/* End-of-level cut: review, adjust, confirm */}
-          {pendingCut && phase !== 'lobby' && (
-            <CutReview cut={pendingCut} onAdjust={adjustCut} onConfirm={confirmCut} />
-          )}
-
-          {cut && !pendingCut && phase !== 'lobby' && (
+          {cut && phase !== 'lobby' && (
             <Panel>
-              <div className="eyebrow eyebrow-heat">Cut after {cut.levelName} · {cut.label}</div>
+              <div className="eyebrow eyebrow-heat">Cut after {cut.levelName}</div>
               <p style={{ margin: '8px 0 0', fontSize: '0.95rem' }}>
-                <strong>{cut.advanced}</strong> go through · <strong>{cut.eliminated.length}</strong> eliminated
+                <strong>{cut.advanced}</strong> advance (top {cut.qualifyTop}) · <strong>{cut.eliminated.length}</strong> eliminated
                 {cut.eliminated.length > 0 && <span className="dim">: {cut.eliminated.slice(0, 8).map((e: any) => e.name).join(', ')}{cut.eliminated.length > 8 ? '…' : ''}</span>}
               </p>
             </Panel>
@@ -257,9 +228,6 @@ export default function HostConsole() {
           {phase === 'question' && (
             <Panel bracketed>
               <div style={{ display: 'flex', gap: 22, alignItems: 'center' }}>
-                {gameState.currentQuestion?.hasImage ? (
-                  <img src={`${serverUrl}/live-image/${gameState.currentQuestionIndex}?t=${gameState.questionStartTime}`} alt="" style={{ width: 120, height: 96, objectFit: 'contain', border: '1px solid var(--line-strong)', borderRadius: 8, background: '#fff' }} />
-                ) : null}
                 <TimerRing value={timeLeft} max={gameState.currentQuestion?.timeLimit || 20} size={96} stroke={5} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="eyebrow eyebrow-heat">Live question</div>
@@ -296,7 +264,6 @@ export default function HostConsole() {
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--line)', opacity: p.connected && (p.status ?? 'active') === 'active' ? 1 : 0.5 }}>
                   <span className="mono tabular faint" style={{ width: 26, fontSize: '0.72rem' }}>{String(idx + 1).padStart(2, '0')}</span>
                   <span className={`dot ${p.connected ? 'dot-live' : ''}`} title={p.connected ? 'Online' : 'Offline'} />
-                  <Avatar id={p.avatar} size={30} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                     <span style={{ display: 'block', fontWeight: 600, fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                     {(p.ticketId || flagged(p)) && (
@@ -316,12 +283,7 @@ export default function HostConsole() {
                   {phase === 'lobby' ? (
                     <button className="btn btn-danger btn-sm" onClick={() => kickPlayer(p.id, p.name)} aria-label={`Kick ${p.name}`}>Kick</button>
                   ) : p.status !== 'disqualified' && (
-                    <>
-                      {(p.status ?? 'active') === 'active' && phase !== 'question' && (
-                        <button className="btn btn-ghost btn-sm" onClick={() => eliminate(p.id, p.name)} aria-label={`Eliminate ${p.name}`}>Out</button>
-                      )}
-                      <button className="btn btn-danger btn-sm" onClick={() => disqualify(p.id, p.name)} aria-label={`Disqualify ${p.name}`}>DQ</button>
-                    </>
+                    <button className="btn btn-danger btn-sm" onClick={() => disqualify(p.id, p.name)} aria-label={`Disqualify ${p.name}`}>DQ</button>
                   )}
                 </div>
               ))
@@ -330,109 +292,6 @@ export default function HostConsole() {
         </Panel>
       </div>
     </div>
-  );
-}
-
-// The proposed cut at the end of a level: who goes through, who is out. The coordinator can move
-// anyone across the line, then confirms; nobody is eliminated until then.
-function CutReview({ cut, onAdjust, onConfirm }: { cut: any; onAdjust: (id: string, keep: boolean) => void; onConfirm: () => void }) {
-  const row = (p: any, keep: boolean) => (
-    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: '0.88rem' }}>
-      <span className="mono faint" style={{ width: 26 }}>#{p.rank}</span>
-      <Avatar id={p.avatar} size={24} />
-      <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-      <span className="mono tabular" style={{ fontSize: '0.8rem' }}>{p.score}</span>
-      <span className="mono faint" style={{ fontSize: '0.72rem' }} title="Correct answers in this level">✓{p.correctInLevel}</span>
-      <button className={`btn btn-sm ${keep ? 'btn-danger' : 'btn-ghost'}`} onClick={() => onAdjust(p.id, !keep)}>{keep ? 'Remove' : 'Keep'}</button>
-    </div>
-  );
-  return (
-    <Panel bracketed>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div>
-          <div className="eyebrow eyebrow-heat">Cut after {cut.levelName}</div>
-          <div style={{ fontWeight: 700, marginTop: 6 }}>{cut.label}{cut.ties === 'include' ? ' · ties go through' : ' · ties: faster player'}</div>
-        </div>
-        <button className="btn btn-heat" onClick={onConfirm}>Confirm cut · {cut.out.length} out</button>
-      </div>
-      <div className="grid-2" style={{ marginTop: 14, gap: 16 }}>
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 6 }}>Going through ({cut.advance.length})</div>
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}>{cut.advance.map((p: any) => row(p, true))}</div>
-        </div>
-        <div>
-          <div className="eyebrow" style={{ marginBottom: 6, color: 'var(--bad)' }}>Out ({cut.out.length})</div>
-          <div style={{ maxHeight: 280, overflowY: 'auto' }}>{cut.out.length ? cut.out.map((p: any) => row(p, false)) : <p className="dim" style={{ fontSize: '0.85rem' }}>Nobody</p>}</div>
-        </div>
-      </div>
-      <p className="dim" style={{ fontSize: '0.8rem', margin: '12px 0 0' }}>
-        Nobody is eliminated until you confirm. The projector shows "The cut is coming…" meanwhile.
-      </p>
-    </Panel>
-  );
-}
-
-// The coordinator loads the set to play (e.g. "Trial set" for a practice round, then "Main set")
-// with the PIN the quiz master gave them. The questions stay hidden; they go straight to the game.
-function LoadSet({ loaded, onLoaded }: { loaded: { count: number; by?: string; bank?: { id: string; name: string } | null } | null; onLoaded: (msg: string) => void }) {
-  const [sets, setSets] = useState<{ id: string; name: string; ready: boolean; active: number }[]>([]);
-  const [bankId, setBankId] = useState('');
-  const [pin, setPin] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    api('/banks').then((list: any[]) => {
-      const ready = list.filter(b => b.ready);
-      setSets(ready);
-      setBankId(id => id || ready[0]?.id || '');
-    }).catch(err => setError(err.message));
-  }, []);
-
-  const load = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      const r = await api('/game/load-questions', { method: 'POST', body: { bankId, pin } });
-      setPin('');
-      onLoaded(`Loaded "${r.bank?.name ?? 'set'}" — ${r.count} questions`);
-    } catch (err) {
-      setError((err as Error).message);
-      setPin('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Panel bracketed>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
-        <div className="eyebrow">Question set</div>
-        {loaded?.count ? (
-          <span className="pill pill-good">✓ "{loaded.bank?.name ?? 'Set'}" loaded · {loaded.count} questions{loaded.by ? ` · by ${loaded.by}` : ''}</span>
-        ) : <span className="pill pill-warn">No set loaded</span>}
-      </div>
-      <form onSubmit={load} style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-        <div className="form-row" style={{ flex: '1 1 200px' }}>
-          <label className="eyebrow" htmlFor="load-set">Set</label>
-          <select id="load-set" className="field field-sm" value={bankId} onChange={e => setBankId(e.target.value)}>
-            {sets.length === 0 && <option value="">No sets ready — the quiz master sets them up</option>}
-            {sets.map(b => <option key={b.id} value={b.id}>{b.name} · {b.active} questions</option>)}
-          </select>
-        </div>
-        <div className="form-row" style={{ flex: '0 1 160px' }}>
-          <label className="eyebrow" htmlFor="load-pin">Set PIN</label>
-          <input id="load-pin" className="field field-sm" type="password" inputMode="numeric" autoComplete="off" value={pin}
-            onChange={e => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))} style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.3em' }} />
-        </div>
-        <button className="btn btn-heat" disabled={busy || !bankId || pin.length < 4}>{busy ? 'Loading…' : loaded?.count ? 'Load this set instead' : 'Load set'}</button>
-      </form>
-      {error && <p role="alert" className="error-text" style={{ textAlign: 'left', marginTop: 10 }}>{error}</p>}
-      <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>
-        The quiz master gives you the PIN of the set to play. You never see the questions — they go straight to the game and appear on screen one at a time.
-      </p>
-    </Panel>
   );
 }
 

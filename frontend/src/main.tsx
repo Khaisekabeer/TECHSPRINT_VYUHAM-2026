@@ -11,7 +11,6 @@ import '@fontsource/instrument-sans/latin-500'
 import '@fontsource/instrument-sans/latin-600'
 import '@fontsource/instrument-sans/latin-700'
 import './index.css'
-import './comic.css'
 
 import { SocketProvider } from './contexts/SocketContext'
 
