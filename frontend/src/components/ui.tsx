@@ -122,17 +122,13 @@ export function VyuhamLogo({ height = 40, white = false, style }: { height?: num
   return <img src={white ? '/vyuham-logo-white.png' : '/vyuham-logo.png'} alt="Vyuham" style={{ height, width: 'auto', display: 'block', ...style }} />;
 }
 
-// Sunburst + halftone backdrop of a themed stage (put it first inside <div className="stage" data-theme>).
-export function ComicBg({ slashes = false }: { slashes?: boolean }) {
+// Backdrop of a projector/phone stage: paper gradient, faint rays, halftone corners and the
+// concentric rings (put it first inside <div className="stage" data-theme="mono">).
+export function ComicBg() {
   return (
     <>
       <div className="comic-bg" aria-hidden="true" />
-      {slashes && (
-        <>
-          <div className="comic-slash" aria-hidden="true" style={{ top: '-24vmax', right: '-20vmax' }} />
-          <div className="comic-slash" aria-hidden="true" style={{ bottom: '-26vmax', left: '-22vmax' }} />
-        </>
-      )}
+      <Rings size="max(120vmin, 640px)" style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }} />
     </>
   );
 }

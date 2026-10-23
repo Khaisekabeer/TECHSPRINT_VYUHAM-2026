@@ -17,11 +17,11 @@ const storage = {
 
 const screenPad: CSSProperties = { width: '100%', maxWidth: 460, margin: '0 auto', padding: '0 20px' };
 
-// A themed phone screen: comic backdrop + content. Event theme outside levels, level theme inside.
-function Screen({ theme, children, style }: { theme: string; children: ReactNode; style?: CSSProperties }) {
+// A phone screen: paper backdrop (rays, halftone, rings) + content. Same look for every level.
+function Screen({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return (
-    <div className="stage" data-theme={theme} style={style}>
-      <ComicBg slashes={theme === 'pop'} />
+    <div className="stage" data-theme="mono" style={style}>
+      <ComicBg />
       {children}
     </div>
   );
@@ -42,7 +42,8 @@ export default function ParticipantView() {
   const [gameState, setGameState] = useState<any>(null);
   const [playerInfo, setPlayerInfo] = useState<any>(null);
   const [answerResult, setAnswerResult] = useState<any>(null);
-  const [standing, setStanding] = useState<{ rank: number; of: number } | null>(null);
+  // Our place among those still in, and whether we're below the level's cut line right now.
+  const [standing, setStanding] = useState<{ rank: number; of: number; atRisk?: boolean; cutLabel?: string | null } | null>(null);
   const [lastCut, setLastCut] = useState<any>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -101,7 +102,12 @@ export default function ParticipantView() {
     // Whether a cut happened at this reveal ("You made the cut!").
     socket.on('question_result', (r: any) => setLastCut(r?.elimination ?? null));
     // Status changes outside a reveal (e.g. disqualified by the host).
-    socket.on('player_update', (res: any) => setPlayerInfo(res.player));
+    socket.on('player_update', (res: any) => {
+      setPlayerInfo(res.player);
+      if (res.standing !== undefined) setStanding(res.standing);
+    });
+    // The coordinator confirmed the end-of-level cut ("You made the cut!" if we're still in).
+    socket.on('cut_result', (data: any) => setLastCut(data.elimination));
     return () => {
       socket.off('game_state');
       socket.off('kicked');
@@ -109,6 +115,7 @@ export default function ParticipantView() {
       socket.off('my_result');
       socket.off('question_result');
       socket.off('player_update');
+      socket.off('cut_result');
     };
   }, [socket]);
 
@@ -188,7 +195,6 @@ export default function ParticipantView() {
     });
   };
 
-  const levelTheme = gameState?.levelConfig?.theme ?? 'blast';
   const center: CSSProperties = { ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 18 };
 
   // ─── Connecting ────────────────────────────────────────────────────────────
@@ -199,7 +205,7 @@ export default function ParticipantView() {
   // ─── Join ──────────────────────────────────────────────────────────────────
   if (!playerInfo) {
     return (
-      <Screen theme="blast">
+      <Screen>
         <header style={{ ...screenPad, paddingTop: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <VyuhamLogo height={46} />
           <span className="comic-badge light" style={{ fontSize: '0.8rem' }}>Vyuham '26</span>
@@ -268,11 +274,11 @@ export default function ParticipantView() {
   // ─── Lobby ─────────────────────────────────────────────────────────────────
   if (!gameState || gameState.state === 'lobby') {
     return (
-      <Screen theme="blast">
+      <Screen>
         <header style={{ ...screenPad, paddingTop: 18 }}><VyuhamLogo height={42} /></header>
         <main style={center}>
           <Rise><span className="comic-badge">You're in!</span></Rise>
-          <div className="pop"><Avatar id={playerInfo.avatar} size={150} style={{ border: '4px solid var(--t-ink)', boxShadow: '5px 5px 0 var(--t-ink)' }} /></div>
+          <div className="pop"><Avatar id={playerInfo.avatar} size={150} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} /></div>
           <Burst style={{ padding: '18px 30px 22px' }}>
             <h1 className="comic-title" style={{ fontSize: 'clamp(2.4rem, 13vw, 4rem)', overflowWrap: 'anywhere' }}>{playerInfo.name}</h1>
           </Burst>
@@ -289,7 +295,7 @@ export default function ParticipantView() {
     const exit = playerInfo.exit || {};
     const disqualified = playerInfo.status === 'disqualified';
     return (
-      <Screen theme={disqualified ? 'classic' : levelTheme}>
+      <Screen>
         <main style={center}>
           <Rise><span className="comic-badge">{disqualified ? 'Disqualified' : `Out after round ${exit.round ?? ''}`}</span></Rise>
           <Avatar id={playerInfo.avatar} size={110} style={{ filter: 'grayscale(0.6)', border: '3px solid var(--t-ink, #111)' }} />
@@ -315,7 +321,7 @@ export default function ParticipantView() {
   if (gameState.state === 'intro') {
     const config = gameState.levelConfig || {};
     return (
-      <Screen theme={levelTheme}>
+      <Screen>
         <main style={center}>
           <Rise><span className="comic-badge light">Round {gameState.currentLevel} of {gameState.totalLevels}</span></Rise>
           <Burst style={{ padding: '34px 30px 40px' }}>
@@ -323,7 +329,7 @@ export default function ParticipantView() {
           </Burst>
           <Rise d={350} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
             <span className="comic-badge">× {config.multiplier} points</span>
-            {config.cutAfter && <span className="comic-badge light">✂ Top {config.cutAfter} go through</span>}
+            {config.cut && <span className="comic-badge light">✂ {config.cut.label}</span>}
           </Rise>
         </main>
       </Screen>
@@ -335,7 +341,7 @@ export default function ParticipantView() {
     const q = gameState.currentQuestion;
     const timeUp = timeLeft <= 0;
     return (
-      <Screen theme={levelTheme}>
+      <Screen>
         <header style={{ ...screenPad, display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 14, paddingBottom: 8 }}>
           <span className="comic-badge light" style={{ fontSize: '1.2rem' }}>
             Q{gameState.currentQuestionIndex + 1}<span style={{ opacity: 0.5 }}>/{gameState.totalQuestions}</span>
@@ -390,10 +396,10 @@ export default function ParticipantView() {
     const me = ranked[rank - 1];
     const medal = disqualified ? 'Disqualified' : rank === 1 ? 'Champion!' : rank === 2 ? 'Runner-up!' : rank === 3 ? 'Third place!' : 'Final standing';
     return (
-      <Screen theme="blast">
+      <Screen>
         <main style={center}>
           <Rise><span className="comic-badge">{medal}</span></Rise>
-          <Avatar id={playerInfo.avatar} size={120} style={{ border: '4px solid var(--t-ink)', boxShadow: '5px 5px 0 var(--t-ink)' }} />
+          <Avatar id={playerInfo.avatar} size={120} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} />
           {rank > 0 ? (
             <>
               <Burst style={{ padding: '24px 40px 30px' }}>
@@ -416,17 +422,17 @@ export default function ParticipantView() {
     const isCorrect = answerResult?.isCorrect;
     const notAnswered = !answerResult;
     const headline = notAnswered ? 'Too slow!' : isCorrect ? 'Correct!' : 'Wrong!';
-    const cutAfter = lastCut ? null : gameState.levelConfig?.cutAfter;
-    const safe = standing && cutAfter ? standing.rank <= cutAfter : null;
+    const cutLabel = lastCut ? null : standing?.cutLabel;
+    const safe = standing && cutLabel ? !standing.atRisk : null;
     return (
-      <Screen theme={levelTheme}>
+      <Screen>
         <main style={center}>
           <Burst style={{ padding: '26px 34px 30px' }}>
             <div style={{ textAlign: 'center' }}>
-              <div className="comic-title pop" style={{ fontSize: '4.2rem', color: notAnswered ? '#9ca3af' : isCorrect ? '#22c55e' : '#ef4444' }} aria-hidden="true">
+              <div className="comic-title pop" style={{ fontSize: '4.2rem', color: notAnswered ? '#8a8a8a' : isCorrect ? '#15803d' : '#b91c1c' }} aria-hidden="true">
                 {notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
               </div>
-              <h1 className="comic-title slam" style={{ fontSize: 'clamp(2.6rem, 14vw, 4rem)', color: notAnswered ? '#9ca3af' : isCorrect ? '#22c55e' : '#ef4444' }}>{headline}</h1>
+              <h1 className="comic-title slam" style={{ fontSize: 'clamp(2.6rem, 14vw, 4rem)', color: notAnswered ? '#8a8a8a' : isCorrect ? '#15803d' : '#b91c1c' }}>{headline}</h1>
             </div>
           </Burst>
 
@@ -442,7 +448,7 @@ export default function ParticipantView() {
           )}
 
           {lastCut && (
-            <Rise d={380}><span className="comic-badge" style={{ fontSize: '1.1rem' }}>🎉 You made the cut! Top {lastCut.qualifyTop}</span></Rise>
+            <Rise d={380}><span className="comic-badge" style={{ fontSize: '1.1rem' }}>🎉 You made the cut! {lastCut.label}</span></Rise>
           )}
 
           <Rise d={480} className="comic-panel" style={{ width: '100%', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -461,7 +467,7 @@ export default function ParticipantView() {
           {safe !== null && (
             <Rise d={560}>
               <span className="comic-badge light" style={{ background: safe ? '#dcfce7' : '#fee2e2' }}>
-                {safe ? `✓ In the top ${cutAfter} — keep it up!` : `⚠ Top ${cutAfter} go through — climb ${standing!.rank - cutAfter!} places!`}
+                {safe ? `✓ Above the line — ${cutLabel}` : `⚠ Below the line — ${cutLabel}`}
               </span>
             </Rise>
           )}

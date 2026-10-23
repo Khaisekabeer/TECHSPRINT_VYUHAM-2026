@@ -12,8 +12,7 @@ const PHASE_LABEL: Record<string, string> = {
   podium: 'Final results',
 };
 
-// The projector. Lobby and podium use the event theme; each level brings its own theme
-// (set by the quiz master), so every round looks different.
+// The projector: monochrome "ink on paper" (see comic.css), the same for every round.
 export default function BigScreen() {
   const { socket, isConnected, serverUrl } = useSocket();
   const [gameState, setGameState] = useState<any>(null);
@@ -39,6 +38,8 @@ export default function BigScreen() {
     socket.on('answer_count', setAnswerCount);
     socket.on('server_info', setServerInfo);
     socket.on('question_result', setQuestionResult);
+    // The coordinator confirmed the end-of-level cut: survivors only, then they move up.
+    socket.on('cut_result', (data: any) => setQuestionResult((prev: any) => ({ ...prev, leaderboard: data.leaderboard, elimination: data.elimination, pendingCut: null, atRisk: [] })));
     socket.emit('join_role', 'bigscreen');
 
     return () => {
@@ -47,6 +48,7 @@ export default function BigScreen() {
       socket.off('answer_count');
       socket.off('server_info');
       socket.off('question_result');
+      socket.off('cut_result');
     };
   }, [socket, isConnected]);
 
@@ -62,16 +64,15 @@ export default function BigScreen() {
   const online = active.filter(p => p.connected).length;
   const phase = gameState?.state ?? 'lobby';
   const inLevel = phase === 'intro' || phase === 'question' || phase === 'leaderboard';
-  const theme = inLevel ? gameState?.levelConfig?.theme ?? 'blast' : 'blast';
   // Question pictures come from the live game server, only once the question is live.
   const imageUrl = (index: number) => `${serverUrl}/live-image/${index}?t=${gameState?.questionStartTime ?? 0}`;
 
   return (
-    <div className="stage" data-theme={theme} style={{ height: '100vh', minHeight: 0 }}>
-      <ComicBg slashes={theme === 'pop'} />
+    <div className="stage" data-theme="mono" style={{ height: '100vh', minHeight: 0 }}>
+      <ComicBg />
 
       <header style={{ display: 'flex', alignItems: 'center', gap: '1.4vw', padding: '1.8vh 2.4vw' }}>
-        <div className="comic-panel" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '0.8vh 1.4vw 0.8vh 0.9vw', boxShadow: '4px 4px 0 var(--t-ink)' }}>
+        <div className="comic-panel" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '0.8vh 1.4vw 0.8vh 0.9vw', boxShadow: 'var(--shadow-sm)' }}>
           <VyuhamLogo height="5.2vh" />
           <span className="comic-text" style={{ fontSize: 'clamp(1.2rem, 2vw, 2.2rem)', lineHeight: 1 }}>TechSprint</span>
           <span className="eyebrow" style={{ fontSize: '0.75rem', color: '#555' }}>Vyuham '26</span>
@@ -103,7 +104,7 @@ export default function BigScreen() {
         {phase === 'question' && (
           <Question gameState={gameState} timeLeft={timeLeft} maxTime={maxTime} answerCount={answerCount} imageUrl={imageUrl} />
         )}
-        {phase === 'leaderboard' && <Reveal result={questionResult} players={active} gameState={gameState} imageUrl={imageUrl} />}
+        {phase === 'leaderboard' && <Reveal result={questionResult} players={active} imageUrl={imageUrl} />}
         {phase === 'podium' && <Podium board={(gameState.finalLeaderboard || players).filter((p: any) => p.status !== 'disqualified')} />}
       </div>
     </div>
@@ -156,7 +157,7 @@ function Lobby({ joinAddress, players }: { joinAddress: string; players: any[] }
           {[...players].reverse().map(p => (
             <span key={p.id} className="pop" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8, padding: chipSize === 'sm' ? '3px 10px 3px 3px' : '4px 14px 4px 4px',
-              background: '#fff', border: '2px solid var(--t-ink)', borderRadius: 999, boxShadow: '2px 2px 0 var(--t-ink)',
+              background: '#fff', border: '1px solid var(--line-strong)', borderRadius: 999, boxShadow: 'var(--shadow-sm)',
               fontWeight: 700, fontSize: chipSize === 'sm' ? '0.8rem' : chipSize === 'md' ? '0.95rem' : '1.1rem', opacity: p.connected ? 1 : 0.45,
             }}>
               <Avatar id={p.avatar} size={avatar} />
@@ -180,8 +181,8 @@ function Intro({ gameState }: { gameState: any }) {
       </Burst>
       <Rise d={450} style={{ display: 'flex', gap: '1.4vw', flexWrap: 'wrap', justifyContent: 'center' }}>
         <span className="comic-badge" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>× {config.multiplier} points</span>
-        {config.cutAfter && (
-          <span className="comic-badge light" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>✂ Top {config.cutAfter} go through</span>
+        {config.cut && (
+          <span className="comic-badge light" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>✂ {config.cut.label}</span>
         )}
         <span className="comic-badge light" style={{ fontSize: 'clamp(1.1rem, 1.8vw, 2rem)' }}>{gameState.playersLeft} players</span>
       </Rise>
@@ -204,7 +205,7 @@ function Question({ gameState, timeLeft, maxTime, answerCount, imageUrl }: {
           ['--d' as string]: `${200 + idx * 90}ms`, display: 'flex', alignItems: 'stretch', minHeight: withImage ? '9vh' : '11vh', overflow: 'hidden',
         }}>
           <span className="comic-text" style={{
-            width: '5.2vw', minWidth: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '3px solid var(--t-ink)',
+            width: '5.2vw', minWidth: 64, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRight: '1px solid var(--line)',
             background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'clamp(2.2rem, 3.2vw, 3.8rem)',
           }}>{OPTION_LABELS[idx]}</span>
           <span style={{ display: 'flex', alignItems: 'center', padding: '0 1.6vw', fontSize: withImage ? 'clamp(1.2rem, 1.8vw, 2.1rem)' : 'clamp(1.3rem, 2vw, 2.4rem)', fontWeight: 700, color: '#111' }}>{opt}</span>
@@ -219,12 +220,12 @@ function Question({ gameState, timeLeft, maxTime, answerCount, imageUrl }: {
         <span className="comic-badge light" style={{ fontSize: 'clamp(1.3rem, 2.2vw, 2.6rem)' }}>
           Q{gameState.currentQuestionIndex + 1}<span style={{ opacity: 0.5 }}>/{gameState.totalQuestions}</span>
         </span>
-        <div className="comic-panel" style={{ flex: 1, maxWidth: 460, marginLeft: 'auto', padding: '1.2vh 1.2vw', boxShadow: '4px 4px 0 var(--t-ink)' }}>
+        <div className="comic-panel" style={{ flex: 1, maxWidth: 460, marginLeft: 'auto', padding: '1.2vh 1.2vw', boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
             <span className="comic-text" style={{ fontSize: '1rem' }}>Answers in</span>
             <span className="comic-text tabular" style={{ fontSize: '1.2rem' }}>{answerCount.answered} / {answerCount.total}</span>
           </div>
-          <div className="meter" style={{ height: 10, border: '2px solid var(--t-ink)', background: '#fff' }}><span style={{ width: `${pct}%`, background: 'var(--t-accent)' }} /></div>
+          <div className="meter" style={{ height: 10, border: '1px solid var(--line-strong)', background: 'var(--line)' }}><span style={{ width: `${pct}%`, background: 'var(--t-ink)' }} /></div>
         </div>
         <div className="timer-disc"><TimerRing value={timeLeft} max={maxTime} size={120} stroke={7} /></div>
       </div>
@@ -257,14 +258,15 @@ function Question({ gameState, timeLeft, maxTime, answerCount, imageUrl }: {
 }
 
 // ─── Reveal: the answer, how people voted, and everyone's standing ────────────
-function Reveal({ result, players, gameState, imageUrl }: { result: any; players: any[]; gameState: any; imageUrl: (i: number) => string }) {
+function Reveal({ result, players, imageUrl }: { result: any; players: any[]; imageUrl: (i: number) => string }) {
   const stats: [string, number][] = result ? Object.entries(result.stats || {}) as [string, number][] : [];
   const maxCount = Math.max(1, ...stats.map(([, n]) => n));
   const totalAnswers = stats.reduce((sum, [, n]) => sum + n, 0);
   const board: any[] = result?.leaderboard || players;
   const cut = result?.elimination;
-  // Before this level's cut, show who is at risk; once it has happened, only survivors remain.
-  const atRiskAfter = cut ? null : gameState?.levelConfig?.cutAfter ?? null;
+  // Before this level's cut, show who is below the line; once it is confirmed, only survivors remain.
+  const atRisk: string[] = cut ? [] : result?.atRisk ?? [];
+  const pending = result?.pendingCut;
 
   return (
     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', padding: '0 2.4vw 2.6vh', gap: '2vh' }}>
@@ -275,7 +277,7 @@ function Reveal({ result, players, gameState, imageUrl }: { result: any; players
         <Burst style={{ padding: '2.6vh 3.4vw', flexShrink: 0, maxWidth: '40vw' }}>
           <div style={{ textAlign: 'center' }}>
             <div className="comic-text" style={{ fontSize: 'clamp(0.9rem, 1.2vw, 1.3rem)', color: '#333' }}>The answer</div>
-            <div className="comic-title" style={{ fontSize: 'clamp(1.8rem, 3.6vw, 4.2rem)', color: '#22c55e', overflowWrap: 'anywhere' }}>{result?.correctAnswer ?? '—'}</div>
+            <div className="comic-title" style={{ fontSize: 'clamp(1.8rem, 3.6vw, 4.2rem)', color: 'var(--good)', overflowWrap: 'anywhere' }}>{result?.correctAnswer ?? '—'}</div>
           </div>
         </Burst>
 
@@ -284,11 +286,11 @@ function Reveal({ result, players, gameState, imageUrl }: { result: any; players
             const correct = option === result.correctAnswer;
             return (
               <div key={option} data-opt={idx} style={{ display: 'flex', alignItems: 'center', gap: 12, opacity: correct ? 1 : 0.5 }}>
-                <span className="comic-text" style={{ width: 34, height: 34, flexShrink: 0, display: 'grid', placeItems: 'center', background: 'var(--opt)', border: '2px solid #111', borderRadius: 8, fontSize: '1.2rem' }}>
+                <span className="comic-text" style={{ width: 34, height: 34, flexShrink: 0, display: 'grid', placeItems: 'center', background: 'var(--opt)', border: '1px solid var(--line-strong)', borderRadius: 8, fontSize: '1.2rem' }}>
                   {correct ? '✓' : OPTION_LABELS[idx]}
                 </span>
                 <span style={{ width: '24%', minWidth: 0, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option}</span>
-                <div style={{ flex: 1, height: 14, background: '#eee', border: '2px solid #111', borderRadius: 4, overflow: 'hidden' }}>
+                <div style={{ flex: 1, height: 14, background: 'var(--line)', borderRadius: 4, overflow: 'hidden' }}>
                   <div style={{ width: `${(count / maxCount) * 100}%`, height: '100%', background: 'var(--opt)', transformOrigin: 'left', animation: `grow-x 0.9s var(--ease-out) ${300 + idx * 100}ms backwards` }} />
                 </div>
                 <span className="comic-text tabular" style={{ width: 40, textAlign: 'right' }}>{count}</span>
@@ -300,21 +302,27 @@ function Reveal({ result, players, gameState, imageUrl }: { result: any; players
         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1vh', flexShrink: 0 }}>
           <span className="comic-badge light">{totalAnswers} answered</span>
           {result?.speedStar && <span className="comic-badge">⚡ {result.speedStar}</span>}
-          {atRiskAfter && <span className="comic-badge light">✂ Top {atRiskAfter} go through</span>}
+          {!cut && result?.cutLabel && <span className="comic-badge light">✂ {result.cutLabel}</span>}
         </div>
       </div>
 
+      {pending && !cut && (
+        <Rise className="comic-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2vw', padding: '1.2vh 2vw', background: '#111', color: '#fff' }}>
+          <span className="comic-title" style={{ fontSize: 'clamp(1.6rem, 2.8vw, 3.2rem)', color: '#fff' }}>The cut is coming…</span>
+          <span className="comic-text" style={{ fontSize: 'clamp(1.2rem, 2vw, 2.2rem)' }}>{pending.label} · {pending.out} below the line</span>
+        </Rise>
+      )}
       {cut && (
         <Rise className="comic-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2vw', padding: '1.2vh 2vw', background: 'var(--t-accent)', color: '#fff' }}>
           <span className="comic-title" style={{ fontSize: 'clamp(1.6rem, 2.8vw, 3.2rem)', color: '#fff' }}>End of {cut.levelName}!</span>
           <span className="comic-text" style={{ fontSize: 'clamp(1.2rem, 2vw, 2.2rem)' }}>
-            Top {cut.qualifyTop} advance{cut.eliminated.length > 0 ? ` · ${cut.eliminated.length} eliminated` : ''}
+            {cut.eliminated.length > 0 ? `${cut.advanced} go through · ${cut.eliminated.length} eliminated` : 'Everyone goes through!'}
           </span>
         </Rise>
       )}
 
       <div style={{ flex: 1, minHeight: 0 }}>
-        <Standings players={board} cutAfter={atRiskAfter} />
+        <Standings players={board} atRisk={atRisk} />
       </div>
     </div>
   );
@@ -324,9 +332,9 @@ function Reveal({ result, players, gameState, imageUrl }: { result: any; players
 function Podium({ board }: { board: any[] }) {
   // Classic podium order: 2nd, 1st, 3rd
   const slots = [
-    { p: board[1], place: 2, height: '22vh', delay: 500, color: '#e5e7eb' },
-    { p: board[0], place: 1, height: '32vh', delay: 900, color: 'var(--t-title)' },
-    { p: board[2], place: 3, height: '15vh', delay: 200, color: '#fdba74' },
+    { p: board[1], place: 2, height: '22vh', delay: 500, color: 'linear-gradient(180deg, #ffffff, #e9e8e3)' },
+    { p: board[0], place: 1, height: '32vh', delay: 900, color: 'linear-gradient(180deg, #2a2a2a, #0a0a0a)' },
+    { p: board[2], place: 3, height: '15vh', delay: 200, color: 'linear-gradient(180deg, #f7f6f2, #dedcd5)' },
   ];
   const rest = board.slice(3, 10);
   return (
@@ -340,7 +348,7 @@ function Podium({ board }: { board: any[] }) {
           <div key={place} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
             {p && (
               <div className="pop" style={{ ['--d' as string]: `${delay + 500}ms`, display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '1.6vh', maxWidth: '100%' }}>
-                <Avatar id={p.avatar} size={place === 1 ? '15vh' : '12vh'} style={{ border: '4px solid var(--t-ink)', boxShadow: '5px 5px 0 var(--t-ink)' }} />
+                <Avatar id={p.avatar} size={place === 1 ? '15vh' : '12vh'} style={{ border: '2px solid #fff', boxShadow: 'var(--shadow-lg)' }} />
                 <div className="comic-text" style={{ marginTop: '1.2vh', fontSize: place === 1 ? 'clamp(2rem, 3.2vw, 3.6rem)' : 'clamp(1.4rem, 2.2vw, 2.6rem)', maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {p.name}
                 </div>
@@ -352,7 +360,7 @@ function Podium({ board }: { board: any[] }) {
               display: 'flex', justifyContent: 'center', paddingTop: '1.6vh',
               transformOrigin: 'bottom', animation: `grow-y 0.9s var(--ease-out) ${delay}ms backwards`,
             }}>
-              <span className="comic-title" style={{ fontSize: place === 1 ? '10vh' : '7vh' }}>{place}</span>
+              <span className="comic-title" style={{ fontSize: place === 1 ? '10vh' : '7vh', color: place === 1 ? '#fff' : 'var(--bone-faint)' }}>{place}</span>
             </div>
           </div>
         ))}
@@ -361,7 +369,7 @@ function Podium({ board }: { board: any[] }) {
       {rest.length > 0 && (
         <Rise d={1600} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', padding: '2vh 0' }}>
           {rest.map((p: any, i: number) => (
-            <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 14px 4px 4px', background: '#fff', border: '2px solid var(--t-ink)', borderRadius: 999, boxShadow: '2px 2px 0 var(--t-ink)', fontWeight: 700 }}>
+            <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 14px 4px 4px', background: '#fff', border: '1px solid var(--line-strong)', borderRadius: 999, boxShadow: 'var(--shadow-sm)', fontWeight: 700 }}>
               <Avatar id={p.avatar} size={30} /> {i + 4}. {p.name} · {p.score}
             </span>
           ))}

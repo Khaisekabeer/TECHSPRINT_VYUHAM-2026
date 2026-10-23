@@ -239,11 +239,15 @@ async function runAuto(h) {
     const r = h.result;
     const answers = Object.values(r.stats).reduce((a, b) => a + b, 0);
     log(`   Answer: ${r.correctAnswer}  ·  ${r.stats[r.correctAnswer] || 0}/${answers} correct${r.speedStar ? `  ·  fastest: ${r.speedStar}` : ''}`);
-    if (r.elimination) {
-      const e = r.elimination;
-      log(`   ✂ Cut after ${e.levelName}: top ${e.qualifyTop} advance → ${e.advanced} left, ${e.eliminated.length} eliminated`);
-    }
     await wait(Math.max(0, REVEAL_S * 1000 - INTRO_S * 1000));
+    // End of a level with a cut: the coordinator reviews and confirms it (here: as proposed).
+    if (r.pendingCut) {
+      log(`   ✂ Cut proposed (${r.pendingCut.label}): ${r.pendingCut.advancing} through, ${r.pendingCut.out} out — confirming`);
+      await h.action('cut_confirm');
+      await wait(Math.min(3000, REVEAL_S * 1000));
+    } else if (r.elimination) {
+      log(`   ✂ ${r.elimination.label}: everyone made it`);
+    }
   }
   await wait(500);
   printStandings(h.state.finalLeaderboard || [], 'Final standings');

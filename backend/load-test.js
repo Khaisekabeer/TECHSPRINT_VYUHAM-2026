@@ -107,6 +107,8 @@ const pct = (arr, p) => [...arr].sort((a, b) => a - b)[Math.min(arr.length - 1, 
   let questionsPlayed = 0;
 
   while (true) {
+    // An end-of-level cut waits for the coordinator; the load test confirms it as proposed.
+    if (state?.cutPending) await hostAction('cut_confirm');
     await hostAction('start_question');
     await wait(150);
     if (state.state === 'podium') break;

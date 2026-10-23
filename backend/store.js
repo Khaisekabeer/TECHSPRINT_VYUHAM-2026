@@ -350,17 +350,24 @@ function setLevelTimer(bankId, level, seconds) {
 }
 
 // ─── Levels of a set (rounds; played in number order) ────────────────────────
-const LEVEL_COLUMNS = 'number, name, multiplier, qualify_top, theme';
-const toLevel = row => ({ number: row.number, name: row.name, multiplier: Number(row.multiplier), qualifyTop: row.qualify_top ?? null, theme: row.theme ?? null });
+const LEVEL_COLUMNS = 'number, name, multiplier, theme, cut_rule, cut_value, cut_ties';
+// cut: who goes on to the next level ({ rule, value, ties }), or null for everyone.
+const toLevel = row => ({
+  number: row.number,
+  name: row.name,
+  multiplier: Number(row.multiplier),
+  theme: row.theme ?? null,
+  cut: row.cut_rule ? { rule: row.cut_rule, value: Number(row.cut_value), ties: row.cut_ties || 'speed' } : null,
+});
 
 async function listLevels(bankId) {
   return (await run(supabase.from('levels').select(LEVEL_COLUMNS).eq('bank_id', bankId).order('number'), 'Loading levels')).map(toLevel);
 }
 
-async function createLevel(bankId, { name, multiplier, qualify_top = null, theme = null }) {
+async function createLevel(bankId, { name, multiplier, theme = null, cut_rule = null, cut_value = null, cut_ties = 'speed' }) {
   const last = await run(supabase.from('levels').select('number').eq('bank_id', bankId).order('number', { ascending: false }).limit(1), 'Finding level number');
   const rows = await run(
-    supabase.from('levels').insert({ bank_id: bankId, number: (last[0]?.number ?? 0) + 1, name, multiplier, qualify_top, theme }).select(LEVEL_COLUMNS),
+    supabase.from('levels').insert({ bank_id: bankId, number: (last[0]?.number ?? 0) + 1, name, multiplier, theme, cut_rule, cut_value, cut_ties }).select(LEVEL_COLUMNS),
     'Adding level',
   );
   return toLevel(rows[0]);

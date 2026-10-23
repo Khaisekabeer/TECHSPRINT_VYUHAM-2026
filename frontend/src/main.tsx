@@ -10,7 +10,6 @@ import '@fontsource/instrument-sans/latin-400'
 import '@fontsource/instrument-sans/latin-500'
 import '@fontsource/instrument-sans/latin-600'
 import '@fontsource/instrument-sans/latin-700'
-import '@fontsource/luckiest-guy/latin-400'
 import './index.css'
 import './comic.css'
 

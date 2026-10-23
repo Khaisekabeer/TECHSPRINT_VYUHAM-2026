@@ -118,7 +118,7 @@ Leave the game server address empty. Test data: `npm run seed:test` in `backend/
 
 **Levels** are set up by the quiz master in Admin → Questions: add as many as needed, name them, and give each a points multiplier (default: 1 Warm-up ×1, 2 Core Tech ×2, 3 Brain Burner ×3). They are played in tab order, each opening with an intro on the projector; empty levels are skipped. A level can be deleted once it has no questions.
 
-**Looks:** the projector and phones use comic game themes — **Blast** (yellow sunburst), **Pop** (yellow & pink pop art), **Arcade** (lime burst), **Circuit** (blue tech windows) and **Classic** (plain white). Each level can have its own (level settings → "Look on screen"); left on *Automatic*, every round gets the next theme. The lobby and podium use Blast, with the Vyuham logo throughout.
+**Look:** the projector and phones use a monochrome "ink on paper" style — off-white, black and soft grey gradients, with quiet abstract touches (concentric rings, faint sunburst rays, halftone corners, a thin starburst outline behind big titles) and the Vyuham logo. Every level looks the same; colour is kept for meaning (A–D answers, right/wrong, rank changes, the cut line).
 
 **Standings** on the projector show everyone still in, and the layout follows the size of the field: a dense grid for a crowd (80 players → 8 × 10 tiles), rows for 11–30, big character cards for the final 10. Before a cut, players below it are marked at risk; phones show each player's rank ("#12 of 80") and whether they're inside the cut.
 
@@ -132,9 +132,12 @@ Scoring: `points × level multiplier`, scaled from 100% (instant) to 50% (last s
 
 ## Eliminations & disqualification
 
-- **Cut after a level:** set **Top N advance** on a level (Admin → Questions → level settings). When that level's last question ends, everyone below the top N is eliminated (ties go to the faster player). The projector shows "Top N advance · M eliminated", eliminated phones show their rank and score and can keep watching, but can no longer answer. Leave it empty for no cut; the final level never cuts.
-- **Disqualify:** once the game has started, the host console's **DQ** button removes a player with a reason (e.g. "Using a second phone"). Their answer to the live question is discarded and they get no final rank. (In the lobby, **Kick** simply removes a player.)
-- **Where it's stored:** players stay in `participants` with `status` = `active` / `eliminated` / `disqualified` (their answers and log must survive), and every exit gets a row in `eliminations`: round, level, reason, note, rank and score at exit, and the staff member for disqualifications.
+- **Cut rules per level** (Admin → Questions → level settings → *After this level*): **Top N go through**, **Top X% go through**, **minimum score**, **bottom N are out**, or **at least K correct answers in this level**. *Tie at the line*: the faster player goes through, or everyone tied goes through. *Everyone goes through* = no cut; the final level never cuts.
+- **During the level** the projector marks who is currently below the line, and each phone shows "Above / Below the line".
+- **The coordinator confirms every cut.** When the level's last question ends, the host console shows *Going through* and *Out* lists (rank, score, correct answers in the level); **Keep** / **Remove** moves anyone across the line, then **Confirm cut**. Nobody is eliminated before that, and the next round can't start until it's confirmed. The projector shows "The cut is coming…", then "End of <level>! N go through · M eliminated"; eliminated phones show their rank and score and can keep watching.
+- **Out (manual):** between questions the coordinator can eliminate any player (e.g. a panel decision) — recorded as eliminated by the host, with a rank. **DQ** disqualifies with a reason (e.g. "Using a second phone"): the live answer is discarded and there's no final rank. In the lobby, **Kick** simply removes a player.
+- **Animated standings:** each reveal first shows the previous order and scores, then every row slides to its new rank while the score counts up (▲/▼ shows the change); at a cut the eliminated leave and the rest close up.
+- **Where it's stored:** players stay in `participants` with `status` = `active` / `eliminated` / `disqualified` (their answers and log must survive), and every exit gets a row in `eliminations`: round, level, reason (`cut` / `manual` / `disqualified`), note (the rule or the staff reason), rank and score at exit, and the staff member.
 - **Final ranking:** finalists by score, then the eliminated (later rounds first, then by score), then the disqualified with no rank. The results CSV includes status, round and reason.
 
 ## Activity log & malpractice

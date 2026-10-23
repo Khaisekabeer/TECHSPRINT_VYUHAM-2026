@@ -117,24 +117,65 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     const answers = Object.values(gameEngine.answers);
     const result = gameEngine.endQuestion();
     if (!result) return; // already ended
-    // Participants (with any new eliminated status) first, then the elimination records.
     db.saveQuestionResults(gameEngine.gameId, question?.id, answers, gameEngine.rankedPlayers());
-    if (result.elimination?.eliminated.length) {
-      const out = result.elimination.eliminated.map(e => gameEngine.players[e.id]);
-      db.recordEliminations(gameEngine.gameId, out);
-      for (const p of out) {
-        logEvent('eliminated', { player: p, detail: { level: p.exit.levelName, round: p.exit.round, rank: p.exit.rank, score: p.exit.score, top: result.elimination.qualifyTop } });
-      }
-      console.log(`Cut after ${result.elimination.levelName}: ${result.elimination.advanced} advance, ${out.length} eliminated`);
-    }
     flushEvents();
     io.emit('question_result', result);
+    // End of a level with a cut: the coordinator reviews it before anyone is eliminated.
+    if (result.pendingCut) {
+      broadcastPendingCut();
+      console.log(`Cut proposed after level ${gameEngine.pendingCut.info.name}: ${result.pendingCut.advancing} through, ${result.pendingCut.out} out — waiting for the coordinator`);
+    }
     // Each player learns their own result (and whether they made the cut) only now, at the reveal.
     for (const p of Object.values(gameEngine.players)) {
       sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p), standing: gameEngine.standingOf(p) });
     }
     broadcastState();
     broadcastPlayers();
+  }
+
+  // The proposed cut (who goes through / who is out) for the host console and live monitor.
+  const broadcastPendingCut = () => io.to('host').to('monitor').emit('cut_pending', gameEngine.pendingCutView());
+
+  // Tell every player their status and place (after a cut or a manual elimination).
+  const updateAllPlayers = () => {
+    for (const p of Object.values(gameEngine.players)) {
+      sendToPlayer(p, 'player_update', { player: gameEngine.privateView(p), standing: gameEngine.standingOf(p) });
+    }
+  };
+
+  // Coordinator confirms the end-of-level cut (after any adjustments).
+  function confirmCut(staff) {
+    const result = gameEngine.confirmCut(staff?.id ?? null);
+    if (result.error) return result;
+    db.saveParticipants(gameEngine.gameId, gameEngine.rankedPlayers());
+    db.recordEliminations(gameEngine.gameId, result.out);
+    for (const p of result.out) {
+      logEvent('eliminated', { player: p, detail: { level: p.exit.levelName, round: p.exit.round, rank: p.exit.rank, score: p.exit.score, rule: result.elimination.label, by: staff?.displayName ?? null } });
+    }
+    flushEvents();
+    console.log(`Cut confirmed after ${result.elimination.levelName} by ${staff?.displayName}: ${result.elimination.advanced} through, ${result.out.length} eliminated`);
+    io.emit('cut_result', { elimination: result.elimination, leaderboard: result.leaderboard });
+    broadcastPendingCut(); // now null
+    updateAllPlayers();
+    broadcastState();
+    broadcastPlayers();
+    return { success: true, eliminated: result.out.length };
+  }
+
+  // Coordinator eliminates one player directly (recorded as "eliminated by host").
+  function eliminatePlayer(playerId, note, staff) {
+    const result = gameEngine.eliminate(playerId, typeof note === 'string' ? note.trim().slice(0, 200) : '', staff?.id ?? null);
+    if (result.error) return result;
+    const p = result.player;
+    db.saveParticipants(gameEngine.gameId, [p]);
+    db.recordEliminations(gameEngine.gameId, [p]);
+    logEvent('eliminated', { player: p, detail: { manual: true, reason: p.exit.note, rank: p.exit.rank, score: p.exit.score, by: staff?.displayName ?? null } });
+    flushEvents();
+    sendToPlayer(p, 'player_update', { player: gameEngine.privateView(p), standing: null });
+    if (gameEngine.pendingCut) broadcastPendingCut();
+    broadcastPlayers();
+    if (gameEngine.state === 'question') broadcastAnswerCount();
+    return { success: true };
   }
 
   // Disqualify (any time after the game starts) — kept on record with the reason and who did it.
@@ -147,6 +188,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     logEvent('disqualified', { player: p, detail: { reason: p.exit.note, by: staff?.displayName ?? null } });
     flushEvents();
     sendToPlayer(p, 'player_update', { player: gameEngine.privateView(p) });
+    if (gameEngine.pendingCut) broadcastPendingCut();
     broadcastPlayers();
     if (gameEngine.state === 'question') broadcastAnswerCount();
     return { success: true };
@@ -261,6 +303,23 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       callback(disqualifyPlayer(data?.playerId, data?.reason, staff));
     },
 
+    // End-of-level cut: move a player across the line (keep = true goes through), then confirm.
+    cut_adjust(callback, data) {
+      const result = gameEngine.adjustCut(data?.playerId, data?.keep === true);
+      if (result.error) return callback(result);
+      broadcastPendingCut();
+      callback({ success: true });
+    },
+
+    cut_confirm(callback, data, staff) {
+      callback(confirmCut(staff));
+    },
+
+    eliminate_player(callback, data, staff) {
+      if (gameEngine.state === 'lobby') return callback({ error: 'The game has not started — use Kick in the lobby' });
+      callback(eliminatePlayer(data?.playerId, data?.reason, staff));
+    },
+
     reset_game(callback, data, staff) {
       clearTimeout(questionTimer);
       logEvent('game_reset', { detail: { state: gameEngine.state, by: staff?.displayName ?? null } });
@@ -285,6 +344,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
         socket.data.isHost = role === 'host';
         socket.data.staff = session.staff;
         socket.emit('questions_loaded', questionsLoaded || { count: 0 });
+        socket.emit('cut_pending', gameEngine.pendingCutView());
       } else if (role !== 'bigscreen') {
         return callback({ error: 'Unknown role' });
       }
