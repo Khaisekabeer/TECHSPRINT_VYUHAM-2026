@@ -3,7 +3,6 @@
 import { createAvatar } from '@dicebear/core';
 import { avataaars, bottts } from '@dicebear/collection';
 import type { Options as PersonOptions } from '@dicebear/avataaars';
-import type { Options as RobotOptions } from '@dicebear/bottts';
 
 const BACKGROUNDS = ['ffd54d', 'ff9ec7', '8fe3ea', 'b9e43d', 'c4b5fd', 'ffb48a', 'bfd6ff'];
 const cache = new Map<string, string>();
@@ -26,15 +25,6 @@ const PERSON: Partial<PersonOptions> = {
   accessories: ['prescription01', 'prescription02', 'round', 'sunglasses', 'wayfarers'],
 };
 
-// Bottts limited to bright, clean robots: no grey or brown bodies, no dirty/grunge textures
-// (they look rusty) or blotchy camo, and no ✕✕ "broken" eyes.
-const ROBOT: Partial<RobotOptions> = {
-  baseColor: ['ffb300', '1e88e5', '00acc1', 'f4511e', '5e35b1', '43a047', '3949ab', '039be5', '7cb342', 'c0ca33', 'fb8c00', 'd81b60', '8e24aa', 'e53935', '00897b', 'fdd835'],
-  eyes: ['bulging', 'eva', 'frame1', 'frame2', 'glow', 'happy', 'hearts', 'robocop', 'round', 'roundFrame01', 'roundFrame02', 'sensor', 'shade01'],
-  texture: ['circuits', 'dots'],
-  textureProbability: 35,
-};
-
 export const AVATAR_RE = /^[ab]:[A-Za-z0-9]{1,16}$/;
 
 export function avatarUri(id: string | null | undefined): string {
@@ -43,7 +33,7 @@ export function avatarUri(id: string | null | undefined): string {
   if (!uri) {
     const seed = key.slice(2);
     const options = { seed, backgroundColor: BACKGROUNDS, backgroundType: ['solid' as const] };
-    uri = (key[0] === 'a' ? createAvatar(avataaars, { ...options, ...PERSON }) : createAvatar(bottts, { ...options, ...ROBOT })).toDataUri();
+    uri = (key[0] === 'a' ? createAvatar(avataaars, { ...options, ...PERSON }) : createAvatar(bottts, options)).toDataUri();
     cache.set(key, uri);
   }
   return uri;
