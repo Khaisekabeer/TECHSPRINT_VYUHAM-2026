@@ -98,7 +98,7 @@ export function Standings({ players, atRisk, style }: { players: StandingPlayer[
             <Avatar id={p.avatar} size="var(--av)" />
             <span className="st-name">{p.name}</span>
             {delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`} aria-label={`${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}
-            {(p.streak ?? 0) >= 3 && <span className="st-fire" aria-label={`${p.streak} correct in a row`}>🔥{p.streak}</span>}
+            {(p.streak ?? 0) >= 3 && <span className="st-fire" aria-label={`${p.streak} correct in a row`}>{p.streak}🔥</span>}
             <span className="st-score">{score}</span>
           </div>
         );
