@@ -5,6 +5,7 @@ import { OPTION_LABELS, Panel } from '../../components/ui';
 interface Question {
   id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
   options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
+  explanation?: string;    // why the answer is right, shown after the reveal (stored encrypted)
   imageId?: string | null; // picture for "identify this person / object" questions (stored encrypted)
 }
 type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
@@ -23,7 +24,7 @@ const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
 ];
 
 const blank = (level: number): Draft => ({
-  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null,
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', explanation: '', timeLimit: 20, points: 1000, isActive: true, imageId: null,
 });
 
 interface SetSummary { id: string; name: string; ready: boolean; questions: number; active: number; levels: number }
@@ -455,6 +456,14 @@ Type the set name to confirm:`);
                     </div>
                   ))}
                 </div>
+                {q.explanation ? (
+                  <p style={{ margin: '10px 0 0', padding: '8px 12px', borderLeft: '3px solid var(--good)', background: 'var(--ink-2)', borderRadius: 4, fontSize: '0.86rem', lineHeight: 1.5 }}>
+                    <span className="eyebrow" style={{ display: 'block', marginBottom: 2 }}>Explanation</span>
+                    {q.explanation}
+                  </p>
+                ) : (
+                  <p className="dim" style={{ margin: '10px 0 0', fontSize: '0.8rem' }}>No explanation yet — add one so players learn why after the reveal.</p>
+                )}
                 <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
                   <span className="pill">⏱ {q.timeLimit}s</span>
                   <span className="pill">{q.points} pts</span>
@@ -633,7 +642,7 @@ function Editor({ draft, levels, onSave, onCancel }: {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await onSave({ ...d, options: d.type === 'tf' ? ['True', 'False'] : filled, correctAnswer: d.correctAnswer.trim() });
+    await onSave({ ...d, options: d.type === 'tf' ? ['True', 'False'] : filled, correctAnswer: d.correctAnswer.trim(), explanation: (d.explanation ?? '').trim() });
     setSaving(false);
   };
 
@@ -696,6 +705,13 @@ function Editor({ draft, levels, onSave, onCancel }: {
             ))}
           </div>
         </fieldset>
+
+        <div className="form-row" style={{ marginTop: 16 }}>
+          <label className="eyebrow" htmlFor="q-explanation">Explanation (optional) — shown after the answer is revealed</label>
+          <textarea id="q-explanation" className="field" value={d.explanation ?? ''} onChange={e => setD({ ...d, explanation: e.target.value })} maxLength={600}
+            placeholder="e.g. CSS (Cascading Style Sheets) controls how a page looks; HTML gives it structure." />
+          <span className="dim" style={{ fontSize: '0.75rem', textAlign: 'right' }}>{(d.explanation ?? '').length} / 600</span>
+        </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, fontSize: '0.9rem' }}>
           <input type="checkbox" checked={d.isActive} onChange={e => setD({ ...d, isActive: e.target.checked })} style={{ width: 18, height: 18 }} />

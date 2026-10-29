@@ -544,6 +544,7 @@ class GameEngine {
     this.lastResult = {
       state: this.state,
       correctAnswer: q.correctAnswer,
+      explanation: q.explanation || null,
       stats,
       speedStar,
       // Everyone still in, in order (the projector adapts its layout to the count), with their

@@ -3,6 +3,7 @@ import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Avatar, Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
 import { Standings } from '../components/Standings';
+import confetti from 'canvas-confetti';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — join now',
@@ -12,63 +13,12 @@ const PHASE_LABEL: Record<string, string> = {
   podium: 'Final results',
 };
 
-const MOCK_BIGSCREEN_PREVIEWS: Record<string, any> = {
-  leaderboard: {
-    gameState: { state: 'leaderboard', currentLevel: 1, serverNow: Date.now() },
-    players: [
-      { id: '1', name: 'Aarav Nair', score: 1420, streak: 4, status: 'active', connected: true },
-      { id: '2', name: 'Diya Menon', score: 1280, streak: 3, status: 'active', connected: true },
-      { id: '3', name: 'Rohan Pillai', score: 1150, streak: 2, status: 'active', connected: true },
-      { id: '4', name: 'Ananya Thomas', score: 990, streak: 1, status: 'active', connected: true },
-      { id: '5', name: 'Arjun Varghese', score: 870, streak: 0, status: 'active', connected: true },
-      { id: '6', name: 'Sneha Kumar', score: 740, streak: 2, status: 'active', connected: true },
-      { id: '7', name: 'Rahul Joseph', score: 620, streak: 0, status: 'active', connected: true },
-      { id: '8', name: 'Fathima Rahman', score: 550, streak: 1, status: 'active', connected: true },
-    ],
-    questionResult: {
-      correctAnswer: 'CSS',
-      stats: { 'HTML': 4, 'CSS': 18, 'Python': 2, 'SQL': 1 },
-      speedStar: 'Aarav Nair (1.4s)',
-      leaderboard: [
-        { id: '1', name: 'Aarav Nair', score: 1420, streak: 4 },
-        { id: '2', name: 'Diya Menon', score: 1280, streak: 3 },
-        { id: '3', name: 'Rohan Pillai', score: 1150, streak: 2 },
-        { id: '4', name: 'Ananya Thomas', score: 990, streak: 1 },
-        { id: '5', name: 'Arjun Varghese', score: 870, streak: 0 },
-        { id: '6', name: 'Sneha Kumar', score: 740, streak: 2 },
-        { id: '7', name: 'Rahul Joseph', score: 620, streak: 0 },
-        { id: '8', name: 'Fathima Rahman', score: 550, streak: 1 },
-      ],
-    },
-  },
-  podium: {
-    gameState: {
-      state: 'podium',
-      currentLevel: 3,
-      serverNow: Date.now(),
-      finalLeaderboard: [
-        { id: '1', name: 'Aarav Nair', score: 4850, place: 1 },
-        { id: '2', name: 'Diya Menon', score: 4320, place: 2 },
-        { id: '3', name: 'Rohan Pillai', score: 3910, place: 3 },
-        { id: '4', name: 'Ananya Thomas', score: 3200, place: 4 },
-        { id: '5', name: 'Arjun Varghese', score: 2950, place: 5 },
-        { id: '6', name: 'Sneha Kumar', score: 2700, place: 6 },
-        { id: '7', name: 'Rahul Joseph', score: 2450, place: 7 },
-      ],
-    },
-    players: [],
-    questionResult: null,
-  },
-};
-
 export default function BigScreen() {
   const { socket, isConnected } = useSocket();
-  const previewMode = new URLSearchParams(window.location.search).get('preview');
-  const mock = previewMode ? MOCK_BIGSCREEN_PREVIEWS[previewMode] : null;
 
-  const [gameState, setGameState] = useState<any>(mock?.gameState || null);
-  const [players, setPlayers] = useState<any[]>(mock?.players || []);
-  const [questionResult, setQuestionResult] = useState<any>(mock?.questionResult || null);
+  const [gameState, setGameState] = useState<any>(null);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [questionResult, setQuestionResult] = useState<any>(null);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
   const [serverInfo, setServerInfo] = useState<{ lanAddresses: string[] } | null>(null);
 
@@ -79,7 +29,7 @@ export default function BigScreen() {
   const maxTime = gameState?.currentQuestion?.timeLimit || 20;
 
   useEffect(() => {
-    if (previewMode || !isConnected) return;
+    if (!isConnected) return;
 
     socket.on('game_state', (state) => {
       setGameState(state);
@@ -150,6 +100,8 @@ export default function BigScreen() {
     </div>
   );
 }
+
+const STANDINGS_SHOWN = 10;
 
 const centerRings: CSSProperties = { top: '50%', left: '50%', transform: 'translate(-50%, -50%)' };
 
@@ -299,6 +251,8 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
   const totalAnswers = stats.reduce((sum, [, n]) => sum + n, 0);
   // Everyone still in, with their previous rank and score so rows climb to their new place.
   const board: any[] = result?.leaderboard || players.filter(p => (p.status ?? 'active') === 'active');
+  // The projector shows the top 10 only, in one column; everyone sees their own rank on their phone.
+  const top = board.slice(0, STANDINGS_SHOWN);
   const cut = result?.elimination;
   const pending = result?.pendingCut;
   const roundEnd = result?.roundEnd;
@@ -312,6 +266,12 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
         <Rise d={80} as="h2" className="display slam" style={{ fontSize: 'clamp(3rem, 5.5vw, 6.5rem)', color: 'var(--good)', margin: '1.5vh 0 4vh', overflowWrap: 'anywhere' }}>
           {result?.correctAnswer ?? '—'}
         </Rise>
+        {result?.explanation && (
+          <Rise d={250} className="panel" style={{ margin: '-2vh 0 3.5vh', padding: '1.6vh 1.4vw', borderLeft: '4px solid var(--good)' }}>
+            <div className="eyebrow" style={{ fontSize: '0.75rem', marginBottom: '0.8vh' }}>Why?</div>
+            <p style={{ margin: 0, fontSize: 'clamp(1.05rem, 1.5vw, 1.7rem)', lineHeight: 1.4, fontWeight: 500, textWrap: 'pretty' }}>{result.explanation}</p>
+          </Rise>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.6vh' }}>
           {stats.map(([option, count], idx) => {
@@ -382,9 +342,9 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
         )}
       </section>
 
-      <section style={{ flex: board.length > 10 && !hideStandings ? 1.7 : 1, display: 'flex', flexDirection: 'column', padding: '4vh 3vw', minWidth: 0, minHeight: 0 }}>
+      <section style={{ flex: hideStandings ? 1 : 1.35, display: 'flex', flexDirection: 'column', padding: '3vh 2.4vw', minWidth: 0, minHeight: 0 }}>
         <Rise className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: '2vh' }}>
-          {hideStandings ? 'Final round' : `Standings · ${board.length} still in`}
+          {hideStandings ? 'Final round' : board.length > top.length ? `Top ${top.length} · ${board.length} still in` : `Standings · ${board.length} still in`}
         </Rise>
         {hideStandings ? (
           <Centered>
@@ -393,7 +353,7 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
           </Centered>
         ) : (
           <div style={{ flex: 1, minHeight: 0 }}>
-            <Standings players={board} atRisk={atRisk} />
+            <Standings players={top} atRisk={atRisk} />
           </div>
         )}
       </section>
@@ -405,24 +365,51 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
 function Podium({ board }: { board: any[] }) {
   // Classic podium order: 2nd, 1st, 3rd
   const slots = [
-    { p: board[1], place: 2, height: '26vh', delay: 500 },
-    { p: board[0], place: 1, height: '38vh', delay: 900 },
-    { p: board[2], place: 3, height: '18vh', delay: 200 },
+    { p: board[1], place: 2, height: '22vh', delay: 500 },
+    { p: board[0], place: 1, height: '32vh', delay: 900 },
+    { p: board[2], place: 3, height: '15vh', delay: 200 },
   ];
   const rest = board.slice(3, 10);
+
+  // Confetti: a burst from the winner as the crown lands, streamers from both sides, then a smaller
+  // burst every few seconds while the results are up.
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const colors = ['#ffc531', '#ff5c8a', '#3da9fc', '#3ddc97', '#ffffff'];
+    const timers: number[] = [];
+    const burst = (count: number) => confetti({ particleCount: count, spread: 110, startVelocity: 48, origin: { x: 0.5, y: 0.38 }, colors });
+    timers.push(window.setTimeout(() => burst(180), 1700));
+    const streamUntil = Date.now() + 1900 + 5000;
+    const stream = () => {
+      confetti({ particleCount: 6, angle: 60, spread: 55, origin: { x: 0, y: 0.75 }, colors });
+      confetti({ particleCount: 6, angle: 120, spread: 55, origin: { x: 1, y: 0.75 }, colors });
+      if (Date.now() < streamUntil) timers.push(window.setTimeout(stream, 120));
+    };
+    timers.push(window.setTimeout(stream, 1900));
+    const repeat = window.setInterval(() => burst(70), 8000);
+    return () => { timers.forEach(clearTimeout); clearInterval(repeat); confetti.reset(); };
+  }, []);
+
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', padding: '4vh 4vw 0' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', padding: '3vh 4vw 0', minHeight: 0 }}>
       <Rings size="150vh" style={{ top: '100%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0.5 }} />
       <Rise className="eyebrow eyebrow-heat" style={{ fontSize: '0.9rem' }}>TechSprint · Vyuham '26 · Final results</Rise>
-      <Rise d={100} as="h1" className="display" style={{ fontSize: 'clamp(3.5rem, 6vw, 7rem)', margin: '1vh 0 0' }}>Sprint champions</Rise>
+      <Rise d={100} as="h1" className="display" style={{ fontSize: 'clamp(2.4rem, min(6vw, 9vh), 7rem)', margin: '1vh 0 0' }}>Sprint champions</Rise>
 
       <div style={{ flex: 1, width: '100%', maxWidth: 1300, display: 'grid', gridTemplateColumns: '1fr 1.15fr 1fr', gap: '1.5vw', alignItems: 'end' }}>
         {slots.map(({ p, place, height, delay }) => (
           <div key={place} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
             {p && (
               <div className="pop" style={{ ['--d' as string]: `${delay + 500}ms`, textAlign: 'center', marginBottom: '2vh', maxWidth: '100%' }}>
-                <Avatar id={p.avatar} size={place === 1 ? '14vh' : '10vh'} style={{ margin: '0 auto 1.2vh' }} />
-                <div style={{ fontSize: place === 1 ? 'clamp(2rem, 3.2vw, 3.6rem)' : 'clamp(1.5rem, 2.3vw, 2.6rem)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {place === 1 ? (
+                  <span style={{ position: 'relative', display: 'inline-block', marginTop: '6vh' }}>
+                    <Crown />
+                    <Avatar id={p.avatar} size="12vh" style={{ margin: '0 auto 1.2vh', boxShadow: '0 0 0 4px #ffc531' }} />
+                  </span>
+                ) : (
+                  <Avatar id={p.avatar} size="9vh" style={{ margin: '0 auto 1.2vh' }} />
+                )}
+                <div style={{ fontSize: place === 1 ? 'clamp(1.6rem, min(2.8vw, 5vh), 3.4rem)' : 'clamp(1.2rem, min(1.9vw, 3.6vh), 2.4rem)', fontWeight: 700, lineHeight: 1.05, overflowWrap: 'anywhere', textWrap: 'balance' }}>
                   {p.name}
                 </div>
                 <div className="mono tabular dim" style={{ fontSize: '1.1rem', marginTop: 6 }}>{p.score} pts</div>
@@ -445,12 +432,28 @@ function Podium({ board }: { board: any[] }) {
       </div>
 
       {rest.length > 0 && (
-        <Rise d={1600} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', padding: '2.5vh 0' }}>
+        <Rise d={1600} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', padding: '2vh 0' }}>
           {rest.map((p: any, i: number) => (
             <span key={p.id} className="chip" style={{ fontSize: '0.8rem', gap: 8 }}><Avatar id={p.avatar} size={22} />{i + 4}. {p.name} · {p.score}</span>
           ))}
         </Rise>
       )}
     </div>
+  );
+}
+
+// Gold crown that drops onto the winner's avatar.
+function Crown() {
+  return (
+    <svg className="crown" viewBox="-3 -3 70 54" aria-hidden="true">
+      <path d="M4 40 L8 12 L22 26 L32 4 L42 26 L56 12 L60 40 Z" fill="#ffc531" stroke="#b7791f" strokeWidth="2.5" strokeLinejoin="round" />
+      <rect x="4" y="38" width="56" height="9" rx="2.5" fill="#f5a623" stroke="#b7791f" strokeWidth="2.5" />
+      <circle cx="8" cy="12" r="4" fill="#ffc531" stroke="#b7791f" strokeWidth="2" />
+      <circle cx="32" cy="4" r="4" fill="#ffc531" stroke="#b7791f" strokeWidth="2" />
+      <circle cx="56" cy="12" r="4" fill="#ffc531" stroke="#b7791f" strokeWidth="2" />
+      <circle cx="32" cy="30" r="3.6" fill="#ff5c8a" />
+      <circle cx="18" cy="32" r="2.6" fill="#3da9fc" />
+      <circle cx="46" cy="32" r="2.6" fill="#3ddc97" />
+    </svg>
   );
 }

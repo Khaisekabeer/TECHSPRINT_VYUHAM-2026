@@ -25,6 +25,8 @@ export default function HostConsole() {
   // The latest cut after a level: who advanced and who was eliminated.
   const [cut, setCut] = useState<any>(null);
   const [pendingCut, setPendingCut] = useState<any>(null);
+  // The last question's answer and explanation, for the coordinator to read out at the reveal.
+  const [reveal, setReveal] = useState<{ correctAnswer: string; explanation: string | null } | null>(null);
 
   const timeLeft = useCountdown(
     gameState?.state === 'question' ? gameState.questionEndsAt : null,
@@ -47,7 +49,10 @@ export default function HostConsole() {
     socket.on('players_list', setPlayers);
     socket.on('answer_count', setAnswerCount);
     socket.on('questions_loaded', setLoaded);
-    socket.on('question_result', (r: any) => { if (r?.elimination) setCut(r.elimination); });
+    socket.on('question_result', (r: any) => {
+      if (r?.elimination) setCut(r.elimination);
+      setReveal(r ? { correctAnswer: r.correctAnswer, explanation: r.explanation ?? null } : null);
+    });
     socket.on('cut_pending', setPendingCut);
     socket.on('cut_result', (data: any) => {
       setPendingCut(null);
@@ -56,6 +61,7 @@ export default function HostConsole() {
     socket.on('game_reset', () => {
       setCut(null);
       setPendingCut(null);
+      setReveal(null);
     });
     socket.emit('join_role', 'host', token, (res: any) => {
       if (res?.error) logout(res.error);
@@ -307,6 +313,17 @@ export default function HostConsole() {
               </span>
             </label>
           </Panel>
+
+          {/* The answer just revealed, with its explanation to read out */}
+          {phase === 'leaderboard' && reveal?.correctAnswer && (
+            <Panel style={{ borderLeft: '4px solid var(--good)' }}>
+              <div className="eyebrow">Answer</div>
+              <div style={{ fontWeight: 700, fontSize: '1.15rem', color: 'var(--good)', marginTop: 6 }}>{reveal.correctAnswer}</div>
+              {reveal.explanation
+                ? <p style={{ margin: '8px 0 0', fontSize: '0.92rem', lineHeight: 1.5 }}>{reveal.explanation}</p>
+                : <p className="dim" style={{ margin: '8px 0 0', fontSize: '0.82rem' }}>No explanation for this question.</p>}
+            </Panel>
+          )}
 
           {/* End-of-level cut: review, adjust, confirm */}
           {pendingCut && phase !== 'lobby' && (

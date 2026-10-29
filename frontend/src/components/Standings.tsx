@@ -23,7 +23,8 @@ function CountUp({ from, to, run }: { from: number; to: number; run: boolean }) 
     let frame = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / MOVE_MS);
+      // The first frame's timestamp can be slightly before `start`; never count below `from`.
+      const t = Math.max(0, Math.min(1, (now - start) / MOVE_MS));
       const eased = 1 - (1 - t) ** 3;
       setValue(Math.round(from + (to - from) * eased));
       if (t < 1) frame = requestAnimationFrame(tick);
@@ -34,18 +35,13 @@ function CountUp({ from, to, run }: { from: number; to: number; run: boolean }) 
   return <>{value}</>;
 }
 
-// Everyone still in the game, on one screen. The layout follows the size of the field:
-//   crowd (31+)      dense tiles, ~10 rows, as many columns as needed (80 players → 8 × 10)
-//   pack (11–30)     rows in 2–3 columns
-//   finalists (≤10)  big character cards
+// The leading players (the projector passes the top 10) in one wide column with full names.
+// Row height, avatar and text size all come from the space available (see .standings in index.css).
 // Each reveal first shows the previous order and scores, then every row slides to its new rank
 // while the score counts up (▲/▼ shows the change). atRisk: players below the level's cut line.
 export function Standings({ players, atRisk, style }: { players: StandingPlayer[]; atRisk?: string[] | null; style?: CSSProperties }) {
-  const n = players.length;
-  const tier = n <= 10 ? 'finalists' : n <= 30 ? 'pack' : 'crowd';
-  const cols = tier === 'finalists' ? (n <= 5 ? 1 : 2) : tier === 'pack' ? (n <= 20 ? 2 : 3) : Math.min(12, Math.ceil(n / 10));
-  const rows = Math.max(1, Math.ceil(n / cols));
-  const avatarSize = tier === 'finalists' ? 'clamp(44px, 8vh, 96px)' : tier === 'pack' ? 'clamp(28px, 4.4vh, 52px)' : 'clamp(18px, 2.8vh, 32px)';
+  // At least 6 rows, so a small field doesn't get giant rows.
+  const rows = Math.max(6, players.length);
 
   // Old order first, then the new one.
   const changed = players.some((p, i) => p.prevRank != null && (p.prevRank !== i + 1 || (p.prevScore ?? p.score) !== p.score));
@@ -68,12 +64,13 @@ export function Standings({ players, atRisk, style }: { players: StandingPlayer[
   const els = useRef(new Map<string, HTMLDivElement>());
   const lastRects = useRef(new Map<string, DOMRect>());
   useLayoutEffect(() => {
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const rects = new Map<string, DOMRect>();
     els.current.forEach((el, id) => rects.set(id, el.getBoundingClientRect()));
     rects.forEach((rect, id) => {
       const old = lastRects.current.get(id);
       const el = els.current.get(id);
-      if (!old || !el) return;
+      if (!old || !el || reduceMotion) return;
       const dx = old.left - rect.left;
       const dy = old.top - rect.top;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
@@ -83,10 +80,8 @@ export function Standings({ players, atRisk, style }: { players: StandingPlayer[
   });
 
   return (
-    <div
-      className={`standings ${tier}`}
-      style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`, ...style }}
-    >
+    <div className="standings-box" style={style}>
+    <div className="standings" style={{ ['--rows' as string]: rows, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
       {shown.map((p, i) => {
         const rank = settled ? i + 1 : p.prevRank ?? i + 1;
         const delta = settled && p.prevRank != null ? p.prevRank - (i + 1) : 0;
@@ -100,24 +95,15 @@ export function Standings({ players, atRisk, style }: { players: StandingPlayer[
         return (
           <div key={p.id} ref={el => { if (el) els.current.set(p.id, el); else els.current.delete(p.id); }} className={cls}>
             <span className="st-rank">{rank}</span>
-            <Avatar id={p.avatar} size={avatarSize} />
-            {tier === 'crowd' ? (
-              // Narrow tiles: score under the name so the name gets the full width.
-              <span className="st-stack">
-                <span className="st-name">{p.name}</span>
-                <span className="st-score">{score}{delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}</span>
-              </span>
-            ) : (
-              <>
-                <span className="st-name">{p.name}</span>
-                {delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`} aria-label={`${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}
-                {(p.streak ?? 0) >= 3 && <span aria-label={`${p.streak} correct in a row`}>🔥</span>}
-                <span className="st-score">{score}</span>
-              </>
-            )}
+            <Avatar id={p.avatar} size="var(--av)" />
+            <span className="st-name">{p.name}</span>
+            {delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`} aria-label={`${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}
+            {(p.streak ?? 0) >= 3 && <span className="st-fire" aria-label={`${p.streak} correct in a row`}>{p.streak}🔥</span>}
+            <span className="st-score">{score}</span>
           </div>
         );
       })}
+    </div>
     </div>
   );
 }
