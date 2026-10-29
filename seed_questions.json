@@ -18,6 +18,51 @@
     "points": 1000
   },
   {
+    "level": 1,
+    "text": "What does CPU stand for?",
+    "type": "mcq",
+    "options": ["Central Processing Unit", "Central Program Utility", "Computer Personal Unit", "Core Processing Unit"],
+    "correctAnswer": "Central Processing Unit",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 1,
+    "text": "Which programming language is known as the backbone of client-side web development?",
+    "type": "mcq",
+    "options": ["JavaScript", "Python", "Java", "C++"],
+    "correctAnswer": "JavaScript",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 1,
+    "text": "Linux is an open-source operating system.",
+    "type": "tf",
+    "options": ["True", "False"],
+    "correctAnswer": "True",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 1,
+    "text": "What does RAM stand for?",
+    "type": "mcq",
+    "options": ["Random Access Memory", "Read Access Memory", "Rapid Action Module", "Real-time Array Memory"],
+    "correctAnswer": "Random Access Memory",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 1,
+    "text": "Which version control system was created by Linus Torvalds in 2005?",
+    "type": "mcq",
+    "options": ["Git", "Subversion", "Mercurial", "CVS"],
+    "correctAnswer": "Git",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
     "level": 2,
     "text": "CSS is used for styling web pages.",
     "type": "tf",
@@ -32,7 +77,61 @@
     "type": "mcq",
     "options": ["O(1)", "O(n)", "O(log n)", "O(n^2)"],
     "correctAnswer": "O(log n)",
-    "timeLimit": 25,
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "Which data structure follows the First In First Out (FIFO) principle?",
+    "type": "mcq",
+    "options": ["Queue", "Stack", "Binary Heap", "Hash Table"],
+    "correctAnswer": "Queue",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "What is the default port used by HTTP traffic?",
+    "type": "mcq",
+    "options": ["80", "443", "8080", "22"],
+    "correctAnswer": "80",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "Which HTTP status code signifies 'Resource Not Found'?",
+    "type": "mcq",
+    "options": ["404", "500", "403", "301"],
+    "correctAnswer": "404",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "Which technology is primarily used for containerizing applications?",
+    "type": "mcq",
+    "options": ["Docker", "Jenkins", "Vagrant", "Terraform"],
+    "correctAnswer": "Docker",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "JavaScript is a single-threaded programming language.",
+    "type": "tf",
+    "options": ["True", "False"],
+    "correctAnswer": "True",
+    "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 2,
+    "text": "Which SQL command is used to fetch distinct values from a column?",
+    "type": "mcq",
+    "options": ["SELECT DISTINCT", "SELECT UNIQUE", "SELECT DIFFERENT", "SELECT ONLY"],
+    "correctAnswer": "SELECT DISTINCT",
+    "timeLimit": 20,
     "points": 1000
   },
   {
@@ -51,6 +150,51 @@
     "options": ["Application Programming Interface", "Advanced Programming Integration", "Automated Process Interface", "Application Protocol Interface"],
     "correctAnswer": "Application Programming Interface",
     "timeLimit": 15,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "What is the output hash length of SHA-256?",
+    "type": "mcq",
+    "options": ["256 bits", "128 bits", "512 bits", "64 bits"],
+    "correctAnswer": "256 bits",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "Which network protocol does a WebSocket connection begin with during its handshake?",
+    "type": "mcq",
+    "options": ["HTTP", "TCP raw socket", "SSH", "UDP"],
+    "correctAnswer": "HTTP",
+    "timeLimit": 20,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "In distributed systems, what does the CAP theorem state you can guarantee at most simultaneously?",
+    "type": "mcq",
+    "options": ["2 out of 3 properties", "1 out of 3 properties", "All 3 properties", "Depends on network latency"],
+    "correctAnswer": "2 out of 3 properties",
+    "timeLimit": 25,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "Which data structure is typically used by relational databases for indexing table columns?",
+    "type": "mcq",
+    "options": ["B+ Tree", "Linked List", "Stack", "Binary Heap"],
+    "correctAnswer": "B+ Tree",
+    "timeLimit": 25,
+    "points": 1000
+  },
+  {
+    "level": 3,
+    "text": "In modern CPU architecture, what does L1, L2, and L3 refer to?",
+    "type": "mcq",
+    "options": ["Cache Memory Levels", "Execution Pipelines", "ALU Subunits", "Bus Lanes"],
+    "correctAnswer": "Cache Memory Levels",
+    "timeLimit": 20,
     "points": 1000
   }
 ]

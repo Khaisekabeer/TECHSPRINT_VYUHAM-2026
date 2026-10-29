@@ -22,16 +22,40 @@ export default function ParticipantView() {
   const [name, setName] = useState('');
   const [ticketId, setTicketId] = useState('');
   // Continuing on a new device: the server asks for the last 4 digits of the registered phone.
+  const previewMode = new URLSearchParams(window.location.search).get('preview');
+  const mock = previewMode ? ({
+    first: {
+      gameState: { state: 'leaderboard', currentLevel: 1 },
+      playerInfo: { name: 'Aarav Nair', score: 1420 },
+      answerResult: { isCorrect: true, points: 108, badge: '1st to Answer' },
+    },
+    streak: {
+      gameState: { state: 'leaderboard', currentLevel: 1 },
+      playerInfo: { name: 'Diya Menon', score: 1280 },
+      answerResult: { isCorrect: true, points: 95, badge: 'Streak Master' },
+    },
+    leaderboard: {
+      gameState: { state: 'leaderboard', currentLevel: 1 },
+      playerInfo: { name: 'Aarav Nair', score: 1420 },
+      answerResult: { isCorrect: true, points: 108, badge: '1st to Answer' },
+    },
+    wrong: {
+      gameState: { state: 'leaderboard', currentLevel: 1 },
+      playerInfo: { name: 'Rohan Pillai', score: 1150 },
+      answerResult: { isCorrect: false, points: 0, badge: null },
+    },
+  } as Record<string, any>)[previewMode] : null;
+
   const [needsVerify, setNeedsVerify] = useState(false);
   const [verify, setVerify] = useState('');
   const [requireCheckin, setRequireCheckin] = useState(true);
   const [joining, setJoining] = useState(false);
-  const [gameState, setGameState] = useState<any>(null);
-  const [playerInfo, setPlayerInfo] = useState<any>(null);
-  const [answerResult, setAnswerResult] = useState<any>(null);
+  const [gameState, setGameState] = useState<any>(mock?.gameState || null);
+  const [playerInfo, setPlayerInfo] = useState<any>(mock?.playerInfo || null);
+  const [answerResult, setAnswerResult] = useState<any>(mock?.answerResult || null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const [rejoining, setRejoining] = useState(() => !!storage.get());
+  const [rejoining, setRejoining] = useState(() => !mock && !!storage.get());
   const questionIndexRef = useRef<number | null>(null);
 
   const timeLeft = useCountdown(
@@ -63,6 +87,7 @@ export default function ParticipantView() {
   };
 
   useEffect(() => {
+    if (previewMode) return;
     socket.on('game_state', applyState);
     socket.on('kicked', () => {
       leaveGame('You were removed by the host.');
@@ -420,18 +445,28 @@ export default function ParticipantView() {
       <div className="stage" data-level={level} style={{ ['--heat' as string]: tone }}>
         <Rings size="min(170vw, 760px)" style={{ ...centerRings, top: '42%' }} />
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          {isCorrect && answerResult?.badge && (
+            <Rise d={120} style={{ marginBottom: 18 }}>
+              {answerResult.badge === '1st to Answer' || answerResult.badge === 'First Blood' ? (
+                <span className="chip chip-gold" style={{ display: 'inline-flex', alignItems: 'center', gap: 10, padding: '8px 18px', fontSize: '1rem', fontWeight: 800, letterSpacing: '0.04em' }}>
+                  <img src="/first-icon.svg" alt="1st" style={{ width: 28, height: 28, display: 'block' }} />
+                  <span>1ST TO ANSWER</span>
+                </span>
+              ) : (
+                <span className="chip chip-gold" style={{ fontSize: '0.95rem', padding: '8px 18px', fontWeight: 700 }}>
+                  ★ {answerResult.badge}
+                </span>
+              )}
+            </Rise>
+          )}
+
           <div className="display heat pop" style={{ fontSize: '5.5rem', lineHeight: 1 }} aria-hidden="true">
             {notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
           </div>
           <h1 className="display heat slam" style={{ fontSize: 'clamp(4rem, 22vw, 6.5rem)', margin: '8px 0 10px', ['--d' as string]: '80ms' }}>{headline}</h1>
 
           {isCorrect ? (
-            <>
-              <Rise d={250} className="display tabular" style={{ fontSize: '2.6rem' }}>+{answerResult.points}</Rise>
-              {answerResult.badge && (
-                <Rise d={380} style={{ marginTop: 16 }}><span className="chip chip-gold">★ {answerResult.badge}</span></Rise>
-              )}
-            </>
+            <Rise d={250} className="display tabular" style={{ fontSize: '2.6rem' }}>+{answerResult.points}</Rise>
           ) : (
             <Rise d={250} as="p" className="dim" style={{ margin: 0 }}>
               {notAnswered ? "You didn't answer in time." : '0 points this round. Streak reset.'}

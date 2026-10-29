@@ -11,11 +11,63 @@ const PHASE_LABEL: Record<string, string> = {
   podium: 'Final results',
 };
 
+const MOCK_BIGSCREEN_PREVIEWS: Record<string, any> = {
+  leaderboard: {
+    gameState: { state: 'leaderboard', currentLevel: 1, serverNow: Date.now() },
+    players: [
+      { id: '1', name: 'Aarav Nair', score: 1420, streak: 4, status: 'active', connected: true },
+      { id: '2', name: 'Diya Menon', score: 1280, streak: 3, status: 'active', connected: true },
+      { id: '3', name: 'Rohan Pillai', score: 1150, streak: 2, status: 'active', connected: true },
+      { id: '4', name: 'Ananya Thomas', score: 990, streak: 1, status: 'active', connected: true },
+      { id: '5', name: 'Arjun Varghese', score: 870, streak: 0, status: 'active', connected: true },
+      { id: '6', name: 'Sneha Kumar', score: 740, streak: 2, status: 'active', connected: true },
+      { id: '7', name: 'Rahul Joseph', score: 620, streak: 0, status: 'active', connected: true },
+      { id: '8', name: 'Fathima Rahman', score: 550, streak: 1, status: 'active', connected: true },
+    ],
+    questionResult: {
+      correctAnswer: 'CSS',
+      stats: { 'HTML': 4, 'CSS': 18, 'Python': 2, 'SQL': 1 },
+      speedStar: 'Aarav Nair (1.4s)',
+      leaderboard: [
+        { id: '1', name: 'Aarav Nair', score: 1420, streak: 4 },
+        { id: '2', name: 'Diya Menon', score: 1280, streak: 3 },
+        { id: '3', name: 'Rohan Pillai', score: 1150, streak: 2 },
+        { id: '4', name: 'Ananya Thomas', score: 990, streak: 1 },
+        { id: '5', name: 'Arjun Varghese', score: 870, streak: 0 },
+        { id: '6', name: 'Sneha Kumar', score: 740, streak: 2 },
+        { id: '7', name: 'Rahul Joseph', score: 620, streak: 0 },
+        { id: '8', name: 'Fathima Rahman', score: 550, streak: 1 },
+      ],
+    },
+  },
+  podium: {
+    gameState: {
+      state: 'podium',
+      currentLevel: 3,
+      serverNow: Date.now(),
+      finalLeaderboard: [
+        { id: '1', name: 'Aarav Nair', score: 4850, place: 1 },
+        { id: '2', name: 'Diya Menon', score: 4320, place: 2 },
+        { id: '3', name: 'Rohan Pillai', score: 3910, place: 3 },
+        { id: '4', name: 'Ananya Thomas', score: 3200, place: 4 },
+        { id: '5', name: 'Arjun Varghese', score: 2950, place: 5 },
+        { id: '6', name: 'Sneha Kumar', score: 2700, place: 6 },
+        { id: '7', name: 'Rahul Joseph', score: 2450, place: 7 },
+      ],
+    },
+    players: [],
+    questionResult: null,
+  },
+};
+
 export default function BigScreen() {
   const { socket, isConnected } = useSocket();
-  const [gameState, setGameState] = useState<any>(null);
-  const [players, setPlayers] = useState<any[]>([]);
-  const [questionResult, setQuestionResult] = useState<any>(null);
+  const previewMode = new URLSearchParams(window.location.search).get('preview');
+  const mock = previewMode ? MOCK_BIGSCREEN_PREVIEWS[previewMode] : null;
+
+  const [gameState, setGameState] = useState<any>(mock?.gameState || null);
+  const [players, setPlayers] = useState<any[]>(mock?.players || []);
+  const [questionResult, setQuestionResult] = useState<any>(mock?.questionResult || null);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
   const [serverInfo, setServerInfo] = useState<{ lanAddresses: string[] } | null>(null);
 
@@ -26,7 +78,7 @@ export default function BigScreen() {
   const maxTime = gameState?.currentQuestion?.timeLimit || 20;
 
   useEffect(() => {
-    if (!isConnected) return;
+    if (previewMode || !isConnected) return;
 
     socket.on('game_state', (state) => {
       setGameState(state);
@@ -52,7 +104,8 @@ export default function BigScreen() {
     const { hostname, port } = window.location;
     const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
     const host = isLocal ? (serverInfo?.lanAddresses[0] ?? hostname) : hostname;
-    return port && port !== '80' && port !== '443' ? `${host}:${port}` : host;
+    const path = import.meta.env.BASE_URL.replace(/\/$/, '');
+    return (port && port !== '80' && port !== '443' ? `${host}:${port}` : host) + path;
   })();
 
   const online = players.filter(p => p.connected).length;

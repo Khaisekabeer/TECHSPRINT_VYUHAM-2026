@@ -452,14 +452,14 @@ class GameEngine {
       points = Math.round(baseScore * (0.5 + 0.5 * (timeRemaining / timeLimitMs)));
 
       if (!this.firstBloodAwarded) {
-        points += 200;
+        points += Math.round(baseScore * 0.20);
         this.firstBloodAwarded = true;
-        badge = 'First Blood';
+        badge = '1st to Answer';
       }
 
       // Score and streak are applied in endQuestion, so nothing the player can see changes before the reveal.
       if (player.streak + 1 >= 3) {
-        points += 100;
+        points += Math.round(baseScore * 0.10);
         if (!badge) badge = 'Streak Master';
       }
       if (timeTaken < 2000 && !badge) badge = 'Lightning';

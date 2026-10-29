@@ -114,6 +114,80 @@ cd frontend && npm run dev -- --host      # UI on :5173
 ```
 Leave the game server address empty. Test data: `npm run seed:test` in `backend/` adds 30 dummy tickets (`TEST0001`-`TEST0020` checked in, `TEST0021`-`TEST0030` not) and 10 test questions across the 3 rounds. For a laptop-only event without Vercel: `npm run build` in `frontend/`, then `HTTPS=true npm start` in `backend/` and open `https://<laptop-ip>:3001`. Docker: `docker compose up --build -d`.
 
+### 4. Hosting under a subfolder on Apache (e.g. `vyuham.duk.ac.in/techquiz/`)
+
+Serve the React build from a subfolder on a shared Apache server, alongside the existing techfest site. Apache only serves static files: the admin API stays on Vercel and the live game stays on the event-day laptop (Cloudflare Tunnel). Keep the Vercel deployment running — the Apache pages depend on it.
+
+```
+vyuham.duk.ac.in (Apache shared hosting)
+├── index.html              ← existing techfest site
+└── techquiz/               ← contents of frontend/dist (npm run build:apache)
+    ├── index.html
+    ├── .htaccess            ← generated: SPA rewrite + caching rules
+    └── assets/              ← bundled JS, CSS, fonts
+
+<your-app>.vercel.app/api/*            ← admin API, check-in, /api/config (always on)
+game.yourdomain.com (Cloudflare Tunnel → laptop :3001)  ← live game (Socket.IO), event day only
+```
+
+The game server has no `/api/*` routes, so the Apache build must call the **Vercel** address for the API; it then finds the game server through `/api/config` (Admin → Overview → Live game server), exactly as on Vercel.
+
+The normal `npm run build` (Vercel, local, Docker) is unaffected — the subfolder settings only apply in the separate `apache` build mode, so there is nothing to revert.
+
+#### Step 1: Configure and build
+
+Fill in the Vercel address in [`frontend/.env.apache`](frontend/.env.apache) (change `VITE_BASE_PATH` too if you use a folder other than `/techquiz/`):
+
+```env
+VITE_BASE_PATH=/techquiz/
+VITE_API_BASE=https://<your-app>.vercel.app
+```
+
+```bash
+cd frontend
+npm install
+npm run build:apache
+```
+
+This creates `frontend/dist/`, including the `.htaccess` file. The build refuses to run if `VITE_API_BASE` is missing.
+
+| URL on Apache | Page |
+|---|---|
+| `vyuham.duk.ac.in/techquiz/` | Player join (the projector QR code points here) |
+| `vyuham.duk.ac.in/techquiz/host` | Host console |
+| `vyuham.duk.ac.in/techquiz/screen` | Projector screen |
+| `vyuham.duk.ac.in/techquiz/admin` | Admin panel |
+
+#### Step 2: Upload to the server
+
+Use cPanel File Manager or FTP:
+
+1. Find the document root for `vyuham.duk.ac.in` (usually `public_html/` or a subdomain folder).
+2. Create a `techquiz/` directory inside the document root.
+3. Upload the **contents** of `frontend/dist/` into `techquiz/`, including the hidden `.htaccess` file (enable "Show hidden files" in cPanel). Delete the old files first when re-uploading.
+
+> `.htaccess` needs `mod_rewrite` and `AllowOverride` — most shared hosts allow both. Test by opening `vyuham.duk.ac.in/techquiz/admin` directly and refreshing it: a 404 means the rewrite isn't active (ask the host to enable it).
+
+The site must be served over **HTTPS** — the check-in camera and the API calls to Vercel need it.
+
+#### Step 3: Event day
+
+Same as [section 3](#3-event-day-laptop-live-game--cloudflare-tunnel): run `npm run game` and `cloudflared tunnel run techsprint` on the laptop, and set the game server address in Admin → Overview. Players, projector and host console are opened from the Apache address.
+
+#### Step 4: (Optional) Redirect from `#/techfest`
+
+If the organizer wants the exact URL `vyuham.duk.ac.in/#/techfest` to land on the quiz, add this to the existing techfest site's root `index.html`:
+
+```html
+<script>
+  if (location.hash.startsWith('#/techfest')) {
+    location.replace('/techquiz/');
+  }
+</script>
+```
+
+
+
 ## Questions & scoring
 
 **Levels** are set up by the quiz master in Admin → Questions: add as many as needed, name them, and give each a points multiplier (default: 1 Warm-up ×1, 2 Core Tech ×2, 3 Brain Burner ×3). They are played in tab order, each opening with an intro on the projector; empty levels are skipped. A level can be deleted once it has no questions.

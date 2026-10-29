@@ -1,7 +1,9 @@
 ﻿import { useEffect, useState } from 'react';
 
-// Dev: the API runs on :3001 next to the Vite server. Production: same origin.
-export const API_BASE = import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:3001` : '';
+// Dev: the API runs on :3001 next to the Vite server. Production: same origin, or VITE_API_BASE for the Apache build.
+export const API_BASE = import.meta.env.DEV
+  ? `${window.location.protocol}//${window.location.hostname}:3001`
+  : (import.meta.env.VITE_API_BASE || '');
 
 export type Role = 'admin' | 'quizmaster' | 'coordinator' | 'volunteer';
 export interface Staff { id: string; username: string; displayName: string; role: Role }

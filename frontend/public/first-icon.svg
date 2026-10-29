@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <!-- Ribbons at bottom -->
+  <path d="M22 38L14 58L26 53L32 46L26 38H22Z" fill="#E11D48"/>
+  <path d="M42 38L50 58L38 53L32 46L38 38H42Z" fill="#BE123C"/>
+  <path d="M14 58L26 53L22 38L14 58Z" fill="#9F1239" opacity="0.4"/>
+  <path d="M50 58L38 53L42 38L50 58Z" fill="#881337" opacity="0.4"/>
+
+  <!-- Outer Golden Starburst / Medal Ring -->
+  <circle cx="32" cy="28" r="22" fill="url(#goldRim)" stroke="#D97706" stroke-width="1.5"/>
+  <circle cx="32" cy="28" r="18.5" fill="url(#goldCore)" stroke="#FDE68A" stroke-width="1"/>
+  <circle cx="32" cy="28" r="16.5" stroke="#F59E0B" stroke-dasharray="2.5 1.5" stroke-width="0.8" fill="none"/>
+
+  <!-- "1st" Typography -->
+  <!-- Number 1 -->
+  <path d="M25 21.5L28.5 19H31.5V36H28V22.8L25.8 24.2L25 21.5Z" fill="#78350F"/>
+  <!-- "st" superscript -->
+  <text x="34" y="26" font-family="system-ui, -apple-system, sans-serif" font-size="8.5" font-weight="900" fill="#78350F">st</text>
+
+  <!-- Highlight glare -->
+  <path d="M18 20C20 15 26 12 32 12" stroke="#FFFBEB" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+
+  <defs>
+    <linearGradient id="goldRim" x1="16" y1="8" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FDE047"/>
+      <stop offset="0.4" stop-color="#F59E0B"/>
+      <stop offset="0.8" stop-color="#D97706"/>
+      <stop offset="1" stop-color="#B45309"/>
+    </linearGradient>
+    <linearGradient id="goldCore" x1="20" y1="12" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FEF08A"/>
+      <stop offset="0.5" stop-color="#FBBF24"/>
+      <stop offset="1" stop-color="#F59E0B"/>
+    </linearGradient>
+  </defs>
+</svg>

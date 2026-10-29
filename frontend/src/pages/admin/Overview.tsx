@@ -72,7 +72,7 @@ function GameServerPanel() {
       {status?.error && <p className="dim" style={{ margin: '10px 0 0', fontSize: '0.82rem' }}>{status.error}</p>}
       {message && <p role="status" style={{ margin: '10px 0 0', fontSize: '0.85rem', color: message.ok ? 'var(--good)' : 'var(--bad)' }}>{message.text}</p>}
       <p className="dim" style={{ margin: '12px 0 0', fontSize: '0.82rem' }}>
-        Players join at <span className="mono">{window.location.host}</span> — the QR code on the projector points there.
+        Players join at <span className="mono">{window.location.host}{import.meta.env.BASE_URL.replace(/\/$/, '')}</span> — the QR code on the projector points there.
       </p>
     </Panel>
   );

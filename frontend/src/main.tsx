@@ -23,7 +23,7 @@ import Admin from './pages/Admin'
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <SocketProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL}>
         <Routes>
           <Route path="/" element={<ParticipantView />} />
           <Route path="/host" element={<HostConsole />} />

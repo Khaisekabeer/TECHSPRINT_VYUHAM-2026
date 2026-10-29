@@ -6,3 +6,5 @@ dist/
 cloudflared.exe
 *.exe
 .cloudflared/
+*.zip
+techfest_techquiz_chat.md

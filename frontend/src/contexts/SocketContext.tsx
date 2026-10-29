@@ -11,7 +11,7 @@ async function resolveSocketUrl(): Promise<string> {
     const config = await fetch(`${API_BASE}/api/config`).then(r => r.json());
     if (config.gameServerUrl) return config.gameServerUrl;
   } catch { /* fall back below */ }
-  return import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:3001` : window.location.origin;
+  return import.meta.env.DEV ? `${window.location.protocol}//${window.location.hostname}:3001` : (API_BASE || window.location.origin);
 }
 
 let socketPromise: Promise<Socket> | null = null;

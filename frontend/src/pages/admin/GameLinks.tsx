@@ -10,8 +10,8 @@ export default function GameLinks() {
         through questions, and the projector screen on the laptop connected to the big screen.
       </p>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <a className="btn btn-heat" href="/host" target="_blank" rel="noreferrer">Open host console ↗</a>
-        <a className="btn btn-ghost" href="/screen" target="_blank" rel="noreferrer">Open projector screen ↗</a>
+        <a className="btn btn-heat" href={`${import.meta.env.BASE_URL}host`} target="_blank" rel="noreferrer">Open host console ↗</a>
+        <a className="btn btn-ghost" href={`${import.meta.env.BASE_URL}screen`} target="_blank" rel="noreferrer">Open projector screen ↗</a>
       </div>
     </Panel>
   );

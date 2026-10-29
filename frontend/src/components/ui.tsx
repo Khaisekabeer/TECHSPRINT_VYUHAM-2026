@@ -19,7 +19,7 @@ export function BrandMark({ className = 'brand-mark' }: { className?: string }) 
 export function Brand({ size, event = true }: { size?: string; event?: boolean }) {
   return (
     <span className="brand" style={size ? { fontSize: size } : undefined}>
-      <img src="/vyuham-logo.png" alt="Vyuham" className="brand-logo" />
+      <img src={`${import.meta.env.BASE_URL}vyuham-logo.png`} alt="Vyuham" className="brand-logo" />
       TechSprint
       {event && <span className="brand-event">Vyuham '26</span>}
     </span>
@@ -119,7 +119,7 @@ export function Rise({ d = 0, as: Tag = 'div', className = '', style, children }
 
 // The Vyuham logo (red mark; white version for dark backgrounds).
 export function VyuhamLogo({ height = 40, white = false, style }: { height?: number | string; white?: boolean; style?: CSSProperties }) {
-  return <img src={white ? '/vyuham-logo-white.png' : '/vyuham-logo.png'} alt="Vyuham" style={{ height, width: 'auto', display: 'block', ...style }} />;
+  return <img src={`${import.meta.env.BASE_URL}${white ? 'vyuham-logo-white.png' : 'vyuham-logo.png'}`} alt="Vyuham" style={{ height, width: 'auto', display: 'block', ...style }} />;
 }
 
 // Backdrop of a projector/phone stage: paper gradient, faint rays, halftone corners and the

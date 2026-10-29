@@ -4,7 +4,7 @@ import { useFrame } from '@react-three/fiber';
 
 export function Robot3D({ gameState, questionResult }: { gameState: any, questionResult: any }) {
   const group = useRef<any>(null);
-  const { nodes, materials, animations } = useGLTF('/RobotExpressive.glb') as any;
+  const { nodes, materials, animations } = useGLTF(`${import.meta.env.BASE_URL}RobotExpressive.glb`) as any;
   const { actions, names } = useAnimations(animations, group);
 
   useEffect(() => {
@@ -52,4 +52,4 @@ export function Robot3D({ gameState, questionResult }: { gameState: any, questio
   );
 }
 
-useGLTF.preload('/RobotExpressive.glb');
+useGLTF.preload(`${import.meta.env.BASE_URL}RobotExpressive.glb`);
