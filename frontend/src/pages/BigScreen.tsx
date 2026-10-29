@@ -1,7 +1,8 @@
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
+import { Avatar, Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
+import { Standings } from '../components/Standings';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — join now',
@@ -88,6 +89,11 @@ export default function BigScreen() {
     socket.on('answer_count', setAnswerCount);
     socket.on('server_info', setServerInfo);
     socket.on('question_result', setQuestionResult);
+    // The coordinator confirmed the end-of-round cut: show who went out, then only the survivors.
+    socket.on('cut_result', (data: any) => setQuestionResult((prev: any) => ({
+      ...prev, leaderboard: data.leaderboard, elimination: data.elimination, pendingCut: null, atRisk: [],
+      roundEnd: prev?.roundEnd && { ...prev.roundEnd, cutPending: false },
+    })));
     socket.emit('join_role', 'bigscreen');
 
     return () => {
@@ -96,6 +102,7 @@ export default function BigScreen() {
       socket.off('answer_count');
       socket.off('server_info');
       socket.off('question_result');
+      socket.off('cut_result');
     };
   }, [socket, isConnected]);
 
@@ -137,7 +144,7 @@ export default function BigScreen() {
         {phase === 'question' && (
           <Question gameState={gameState} timeLeft={timeLeft} maxTime={maxTime} answerCount={answerCount} level={level} />
         )}
-        {phase === 'leaderboard' && <Reveal result={questionResult} players={players} />}
+        {phase === 'leaderboard' && <Reveal result={questionResult} players={players} hideStandings={!!gameState.standingsHidden} />}
         {phase === 'podium' && <Podium board={(gameState.finalLeaderboard || players).filter((p: any) => p.status !== 'disqualified')} />}
       </div>
     </div>
@@ -199,7 +206,8 @@ function Lobby({ joinAddress, players }: { joinAddress: string; players: any[] }
         }}>
           {players.length === 0 && <p className="dim" style={{ fontSize: '1.1rem' }}>Waiting for the first challenger…</p>}
           {[...players].reverse().map(p => (
-            <span key={p.id} className="chip pop" style={{ fontSize: '0.95rem', letterSpacing: '0.02em', textTransform: 'none', fontFamily: 'var(--font-body)', fontWeight: 600, padding: '9px 16px', opacity: p.connected ? 1 : 0.4 }}>
+            <span key={p.id} className="chip pop" style={{ fontSize: '0.95rem', letterSpacing: '0.02em', textTransform: 'none', fontFamily: 'var(--font-body)', fontWeight: 600, padding: '6px 16px 6px 6px', gap: 10, opacity: p.connected ? 1 : 0.4 }}>
+              <Avatar id={p.avatar} size={30} />
               {p.name}
             </span>
           ))}
@@ -285,16 +293,21 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
 }
 
 // ─── Reveal: answer distribution + standings ──────────────────────────────────
-function Reveal({ result, players }: { result: any; players: any[] }) {
+function Reveal({ result, players, hideStandings }: { result: any; players: any[]; hideStandings: boolean }) {
   const stats: [string, number][] = result ? Object.entries(result.stats || {}) as [string, number][] : [];
   const maxCount = Math.max(1, ...stats.map(([, n]) => n));
   const totalAnswers = stats.reduce((sum, [, n]) => sum + n, 0);
-  const board: any[] = (result?.leaderboard || players.filter(p => (p.status ?? 'active') === 'active')).slice(0, 8);
+  // Everyone still in, with their previous rank and score so rows climb to their new place.
+  const board: any[] = result?.leaderboard || players.filter(p => (p.status ?? 'active') === 'active');
   const cut = result?.elimination;
+  const pending = result?.pendingCut;
+  const roundEnd = result?.roundEnd;
+  // Before this level's cut, show who is below the line; once it is confirmed, only survivors remain.
+  const atRisk: string[] = cut ? [] : result?.atRisk ?? [];
 
   return (
     <>
-      <section style={{ flex: 1.1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4vh 4vw', borderRight: '1px solid var(--line)', minWidth: 0 }}>
+      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4vh 3vw', borderRight: '1px solid var(--line)', minWidth: 0 }}>
         <Rise className="eyebrow" style={{ fontSize: '0.8rem' }}>The answer</Rise>
         <Rise d={80} as="h2" className="display slam" style={{ fontSize: 'clamp(3rem, 5.5vw, 6.5rem)', color: 'var(--good)', margin: '1.5vh 0 4vh', overflowWrap: 'anywhere' }}>
           {result?.correctAnswer ?? '—'}
@@ -331,36 +344,58 @@ function Reveal({ result, players }: { result: any; players: any[] }) {
           {result?.speedStar && (
             <Rise d={800}><span className="chip chip-gold" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>⚡ Fastest correct · {result.speedStar}</span></Rise>
           )}
+          {!cut && !hideStandings && result?.cutLabel && (
+            <Rise d={850}><span className="chip" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>✂ {result.cutLabel}</span></Rise>
+          )}
         </div>
-        {cut && (
+
+        {/* End of a round: the cut is being decided, who went out, or everyone goes through. */}
+        {pending && !cut && (
           <Rise d={900} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
-            <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>End of {cut.levelName}</div>
+            <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>Round {roundEnd?.round} complete · {roundEnd?.levelName}</div>
+            <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>The cut is coming…</div>
+            <div className="dim" style={{ fontSize: '1.1rem', marginTop: 4 }}>{pending.label} · {pending.out} below the line</div>
+          </Rise>
+        )}
+        {cut && (
+          <Rise d={300} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
+            <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>Round {cut.round} complete · {cut.levelName}</div>
             <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>
-              Top {cut.qualifyTop} advance{cut.eliminated.length > 0 ? ` · ${cut.eliminated.length} eliminated` : ''}
+              {cut.eliminated.length > 0 ? `${cut.advanced} go through · ${cut.eliminated.length} eliminated` : 'Everyone goes through!'}
             </div>
+            {cut.eliminated.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: '1.4vh', maxHeight: '18vh', overflow: 'hidden' }}>
+                {cut.eliminated.map((p: any, i: number) => (
+                  <span key={p.id} className="chip pop" style={{ ['--d' as string]: `${500 + i * 60}ms`, gap: 8, padding: '4px 12px 4px 4px', textTransform: 'none', fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: '0.85rem' }}>
+                    <Avatar id={p.avatar} size={26} style={{ filter: 'grayscale(1)' }} />{p.name}
+                  </span>
+                ))}
+              </div>
+            )}
+          </Rise>
+        )}
+        {roundEnd && !pending && !cut && !roundEnd.isFinal && (
+          <Rise d={900} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
+            <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>Round {roundEnd.round} complete · {roundEnd.levelName}</div>
+            <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>On to round {roundEnd.round + 1}!</div>
           </Rise>
         )}
       </section>
 
-      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4vh 4vw', minWidth: 0 }}>
-        <Rise className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: '3vh' }}>Standings</Rise>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1vh' }}>
-          {board.map((p: any, idx: number) => (
-            <div key={p.id} className="rise" style={{
-              ['--d' as string]: `${150 + idx * 70}ms`,
-              display: 'flex', alignItems: 'center', gap: 20, padding: '1.4vh 1.4vw',
-              background: idx === 0 ? 'var(--heat)' : 'var(--ink-0)',
-              boxShadow: idx === 0 ? 'var(--shadow-lg)' : 'var(--shadow-sm)',
-              color: idx === 0 ? 'var(--ink-0)' : 'var(--bone)',
-              border: '1px solid', borderColor: idx === 0 ? 'var(--heat)' : 'var(--line)', borderRadius: 'var(--radius)',
-            }}>
-              <span className="display tabular" style={{ width: 48, fontSize: '2.2rem', opacity: idx === 0 ? 1 : 0.55 }}>{idx + 1}</span>
-              <span style={{ flex: 1, fontSize: '1.35rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-              {p.streak >= 3 && <span className="mono" style={{ fontSize: '0.8rem' }}>🔥{p.streak}</span>}
-              <span className="display tabular" style={{ fontSize: '1.9rem' }}>{p.score}</span>
-            </div>
-          ))}
-        </div>
+      <section style={{ flex: board.length > 10 && !hideStandings ? 1.7 : 1, display: 'flex', flexDirection: 'column', padding: '4vh 3vw', minWidth: 0, minHeight: 0 }}>
+        <Rise className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: '2vh' }}>
+          {hideStandings ? 'Final round' : `Standings · ${board.length} still in`}
+        </Rise>
+        {hideStandings ? (
+          <Centered>
+            <div className="display" style={{ fontSize: 'clamp(2.4rem, 4vw, 4.6rem)' }}>Standings hidden</div>
+            <p className="dim" style={{ fontSize: '1.2rem', marginTop: '1.5vh' }}>Who wins? Find out at the final results.</p>
+          </Centered>
+        ) : (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <Standings players={board} atRisk={atRisk} />
+          </div>
+        )}
       </section>
     </>
   );
@@ -386,6 +421,7 @@ function Podium({ board }: { board: any[] }) {
           <div key={place} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 0 }}>
             {p && (
               <div className="pop" style={{ ['--d' as string]: `${delay + 500}ms`, textAlign: 'center', marginBottom: '2vh', maxWidth: '100%' }}>
+                <Avatar id={p.avatar} size={place === 1 ? '14vh' : '10vh'} style={{ margin: '0 auto 1.2vh' }} />
                 <div style={{ fontSize: place === 1 ? 'clamp(2rem, 3.2vw, 3.6rem)' : 'clamp(1.5rem, 2.3vw, 2.6rem)', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {p.name}
                 </div>
@@ -411,7 +447,7 @@ function Podium({ board }: { board: any[] }) {
       {rest.length > 0 && (
         <Rise d={1600} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center', padding: '2.5vh 0' }}>
           {rest.map((p: any, i: number) => (
-            <span key={p.id} className="chip" style={{ fontSize: '0.8rem' }}>{i + 4}. {p.name} · {p.score}</span>
+            <span key={p.id} className="chip" style={{ fontSize: '0.8rem', gap: 8 }}><Avatar id={p.avatar} size={22} />{i + 4}. {p.name} · {p.score}</span>
           ))}
         </Rise>
       )}

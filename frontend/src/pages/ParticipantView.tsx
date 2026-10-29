@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
-import { Brand, Rings, Rise, Spinner, TimerRing, OPTION_LABELS } from '../components/ui';
+import { Avatar, Brand, Rings, Rise, Spinner, TimerRing, OPTION_LABELS } from '../components/ui';
 import { API_BASE } from '../lib/api';
 import confetti from 'canvas-confetti';
 
@@ -54,6 +54,10 @@ export default function ParticipantView() {
   const [playerInfo, setPlayerInfo] = useState<any>(mock?.playerInfo || null);
   const [answerResult, setAnswerResult] = useState<any>(mock?.answerResult || null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  // End of a round: { round, levelName, isFinal, cutPending, cutLabel, eliminated } until the next question.
+  const [roundEnd, setRoundEnd] = useState<any>(null);
+  // Our place among the players still in: { rank, of, atRisk, cutLabel }.
+  const [standing, setStanding] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [rejoining, setRejoining] = useState(() => !mock && !!storage.get());
   const questionIndexRef = useRef<number | null>(null);
@@ -68,6 +72,7 @@ export default function ParticipantView() {
   // Clear per-question UI only when a *new* question starts (not on repeated state broadcasts).
   const applyState = (state: any) => {
     setGameState(state);
+    if (state.state !== 'leaderboard') setRoundEnd(null);
     if (state.state === 'question' && state.currentQuestionIndex !== questionIndexRef.current) {
       questionIndexRef.current = state.currentQuestionIndex;
       setSelectedOption(null);
@@ -98,6 +103,8 @@ export default function ParticipantView() {
     socket.on('my_result', (res: any) => {
       setPlayerInfo(res.player);
       setAnswerResult(res.myAnswer);
+      setStanding(res.standing ?? null);
+      setRoundEnd(res.roundEnd ?? null);
       if (res.myAnswer?.isCorrect) {
         confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 }, colors: ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'] });
         if (navigator.vibrate) navigator.vibrate(150);
@@ -105,8 +112,19 @@ export default function ParticipantView() {
         if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
       }
     });
-    // Status changes outside a reveal (e.g. disqualified by the host).
-    socket.on('player_update', (res: any) => setPlayerInfo(res.player));
+    // Status changes outside a reveal: eliminated or disqualified by the host, or the end-of-round cut.
+    socket.on('player_update', (res: any) => {
+      setPlayerInfo(res.player);
+      setStanding(res.standing ?? null);
+      if (!res.roundEnd) return;
+      setRoundEnd(res.roundEnd);
+      if (res.player?.status === 'active') {
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 }, colors: ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'] });
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
+      } else if (navigator.vibrate) {
+        navigator.vibrate(400);
+      }
+    });
     return () => {
       socket.off('game_state');
       socket.off('kicked');
@@ -145,6 +163,8 @@ export default function ParticipantView() {
       setGameState(res.gameState);
       setSelectedOption(res.myAnswer?.answer ?? null);
       setAnswerResult(res.myAnswer);
+      setStanding(res.standing ?? null);
+      setRoundEnd(res.roundEnd ?? null);
     });
   }, [socket, isConnected]);
 
@@ -290,6 +310,7 @@ export default function ParticipantView() {
         <header style={{ ...screenPad, paddingTop: 22 }}><Brand /></header>
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
           <Rise className="eyebrow eyebrow-heat">You're on the starting line</Rise>
+          <Rise d={60} style={{ marginTop: 18 }}><Avatar id={playerInfo.avatar} size={96} /></Rise>
           <h1 className="display slam" style={{ fontSize: 'clamp(3.4rem, 18vw, 6rem)', margin: '16px 0 18px', overflowWrap: 'anywhere', ['--d' as string]: '120ms' }}>
             {playerInfo.name}
           </h1>
@@ -301,22 +322,24 @@ export default function ParticipantView() {
     );
   }
 
-  // ─── Out of the game: cut after a level, or disqualified ───────────────────
+  // ─── Out of the game: cut after a round, eliminated by the host, or disqualified ──
   if (playerInfo.status && playerInfo.status !== 'active' && gameState.state !== 'podium') {
     const exit = playerInfo.exit || {};
     const disqualified = playerInfo.status === 'disqualified';
+    const byHost = !disqualified && exit.reason === 'manual';
     return (
       <div className="stage stage-grid" style={{ ['--heat' as string]: disqualified ? 'var(--bad)' : 'var(--bone-dim)' }}>
         <Rings size="min(170vw, 760px)" style={centerRings} />
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
-          <Rise className="eyebrow eyebrow-heat">{disqualified ? 'Disqualified' : `Out after round ${exit.round ?? ''}`}</Rise>
+          <Rise style={{ marginBottom: 14 }}><Avatar id={playerInfo.avatar} size={72} style={{ filter: 'grayscale(1)' }} /></Rise>
+          <Rise className="eyebrow eyebrow-heat">{disqualified ? 'Disqualified' : `Eliminated in round ${exit.round ?? ''}`}</Rise>
           <h1 className="display heat slam" style={{ fontSize: 'clamp(3.2rem, 16vw, 5.5rem)', margin: '12px 0 14px' }}>
-            {disqualified ? 'Disqualified' : "Didn't make the cut"}
+            {disqualified ? 'Disqualified' : byHost ? 'Eliminated' : "Didn't make the cut"}
           </h1>
           <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
             {disqualified
               ? (exit.note || 'The quiz host removed you from the game.')
-              : <>{exit.note}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.</>}
+              : <>{String(exit.note || 'Eliminated').replace(/\.$/, '')}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.</>}
           </Rise>
           <Rise d={420} as="p" className="eyebrow" style={{ marginTop: 32 }}>
             {disqualified ? 'Speak to the quiz desk if you think this is a mistake' : 'Stay and watch the rest on the big screen'}
@@ -414,6 +437,7 @@ export default function ParticipantView() {
       <div className="stage stage-grid">
         <Rings size="min(170vw, 760px)" style={centerRings} />
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise style={{ marginBottom: 14 }}><Avatar id={playerInfo.avatar} size={80} /></Rise>
           <Rise className="eyebrow eyebrow-heat">{medal}</Rise>
           {rank > 0 ? (
             <>
@@ -473,17 +497,50 @@ export default function ParticipantView() {
             </Rise>
           )}
 
-          <Rise d={480} className="panel bracketed" style={{ marginTop: 40, padding: '16px 28px', width: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-              <span className="eyebrow">Your total</span>
+          {roundEnd && !roundEnd.isFinal && <RoundEndNotice roundEnd={roundEnd} standing={standing} />}
+
+          <Rise d={480} className="panel bracketed" style={{ marginTop: roundEnd && !roundEnd.isFinal ? 16 : 40, padding: '16px 28px', width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Avatar id={playerInfo.avatar} size={34} />
+                <span className="eyebrow">Your total</span>
+              </span>
               <span className="display tabular" style={{ fontSize: '2.2rem' }}>{playerInfo.score ?? 0}</span>
             </div>
           </Rise>
-          <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 18 }}>Standings are on the big screen</Rise>
+          <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 18 }}>
+            {gameState.standingsHidden ? 'Final round — standings revealed at the end' : 'Standings are on the big screen'}
+          </Rise>
         </main>
       </div>
     );
   }
 
   return null;
+}
+
+// Shown on the reveal at the end of a round: the cut is being decided, or we made it through.
+function RoundEndNotice({ roundEnd, standing }: { roundEnd: any; standing: any }) {
+  const through = !roundEnd.cutPending;
+  return (
+    <Rise d={380} className="panel bracketed" style={{ marginTop: 32, padding: '16px 22px', width: '100%', textAlign: 'left', borderColor: through ? 'var(--good)' : undefined }}>
+      <div className="eyebrow eyebrow-heat">Round {roundEnd.round} complete · {roundEnd.levelName}</div>
+      {roundEnd.cutPending ? (
+        <>
+          <div className="display" style={{ fontSize: '1.8rem', marginTop: 6 }}>The cut is coming…</div>
+          <p className="dim" style={{ margin: '6px 0 0', fontSize: '0.9rem', lineHeight: 1.5 }}>
+            {roundEnd.cutLabel}. {standing?.atRisk ? "You're below the line right now — the host is confirming." : 'The host is confirming who goes through.'}
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="display" style={{ fontSize: '1.8rem', marginTop: 6, color: 'var(--good)' }}>You're through to round {roundEnd.round + 1}!</div>
+          <p className="dim" style={{ margin: '6px 0 0', fontSize: '0.9rem', lineHeight: 1.5 }}>
+            {standing ? <>You're <strong>#{standing.rank}</strong> of {standing.of} still in.</> : null}
+            {roundEnd.eliminated > 0 ? ` ${roundEnd.eliminated} player${roundEnd.eliminated === 1 ? '' : 's'} eliminated.` : ''}
+          </p>
+        </>
+      )}
+    </Rise>
+  );
 }

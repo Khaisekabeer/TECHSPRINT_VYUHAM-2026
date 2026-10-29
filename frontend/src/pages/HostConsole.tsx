@@ -92,12 +92,20 @@ export default function HostConsole() {
   const kickPlayer = (id: string, name: string) => {
     if (confirm(`Remove ${name} from the lobby?`)) hostAction('kick_player', { playerId: id });
   };
-  // Once the game is running, removing a player is a disqualification, kept on record with a reason.
+  // Take one player out of the game: they keep their rank and see "Eliminated" on their phone.
+  const eliminate = (id: string, name: string) => {
+    const reason = prompt(`Eliminate ${name}? They keep their rank and see "Eliminated" on their phone.`, 'Eliminated by the quiz host');
+    if (reason === null) return;
+    hostAction('eliminate_player', { playerId: id, reason: reason.trim() || 'Eliminated by the quiz host' }, () => showToast(`${name} eliminated`));
+  };
+  // Malpractice only: the player loses their rank and sees "Disqualified", kept on record with a reason.
   const disqualify = (id: string, name: string) => {
-    const reason = prompt(`Disqualify ${name}? They stay on record with this reason (e.g. "Using another device").`, 'Malpractice');
+    const reason = prompt(`Disqualify ${name} for malpractice? They lose their rank and see "Disqualified". Reason (e.g. "Using another device"):`, 'Malpractice');
     if (reason === null) return;
     hostAction('disqualify_player', { playerId: id, reason: reason.trim() || 'Disqualified by the quiz host' }, () => showToast(`${name} disqualified`));
   };
+  const toggleFinalStandings = (hide: boolean) => hostAction('set_hide_final_standings', { hide },
+    () => showToast(hide ? 'Standings hidden in the final round' : 'Standings shown in the final round'));
   const resetGame = () => {
     if (confirm('Reset the entire game? All players and scores will be cleared.')) {
       hostAction('reset_game', null, () => showToast('Game reset'));
@@ -147,6 +155,58 @@ export default function HostConsole() {
   const flagged = (p: any) => (p.flags?.away ?? 0) + (p.flags?.fastCorrect ?? 0) > 0;
   const isFinalReveal = phase === 'leaderboard' && gameState.currentQuestionIndex >= total;
   const answeredPct = answerCount.total ? (answerCount.answered / answerCount.total) * 100 : 0;
+
+  // Players who are out, grouped by the round they went out in (latest round first), then the disqualified.
+  const eliminated = players.filter(p => p.status === 'eliminated');
+  const outRounds = [...new Set(eliminated.map(p => p.exit?.round ?? 0))].sort((a, b) => b - a).map(round => {
+    const group = eliminated.filter(p => (p.exit?.round ?? 0) === round).sort((a, b) => (a.exit?.rank ?? 0) - (b.exit?.rank ?? 0));
+    return { round, levelName: group[0]?.exit?.levelName, players: group };
+  });
+  const disqualified = players.filter(p => p.status === 'disqualified');
+
+  const groupHeader = (label: string, count: number, color?: string) => (
+    <div className="eyebrow" style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 20px 8px', background: 'var(--ink-2)', borderBottom: '1px solid var(--line)', color }}>
+      <span>{label}</span><span className="mono tabular">{count}</span>
+    </div>
+  );
+
+  // num: current rank for players still in, rank when they went out for the eliminated.
+  const playerRow = (p: any, num: string) => (
+    <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 20px', borderBottom: '1px solid var(--line)', opacity: p.connected && (p.status ?? 'active') === 'active' ? 1 : 0.55 }}>
+      <span className="mono tabular faint" style={{ width: 26, fontSize: '0.72rem' }}>{num}</span>
+      <span className={`dot ${p.connected ? 'dot-live' : ''}`} title={p.connected ? 'Online' : 'Offline'} />
+      <Avatar id={p.avatar} size={30} style={p.status === 'active' ? undefined : { filter: 'grayscale(1)' }} />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ display: 'block', fontWeight: 600, fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+        {(p.ticketId || flagged(p) || p.exit?.note) && (
+          <span className="mono faint" style={{ display: 'block', fontSize: '0.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {p.ticketId}
+            {p.status !== 'active' && p.exit?.note && <span style={{ marginLeft: p.ticketId ? 6 : 0 }}>{p.exit.note}</span>}
+            {flagged(p) && (
+              <span style={{ color: 'var(--bad)', marginLeft: 6 }} title="Left the quiz screen during a question / very fast correct answers">
+                ⚠ {p.flags.away ? `left screen ×${p.flags.away} (${Math.round(p.flags.awayMs / 1000)}s)` : ''}{p.flags.away && p.flags.fastCorrect ? ' · ' : ''}{p.flags.fastCorrect ? `fast ×${p.flags.fastCorrect}` : ''}
+              </span>
+            )}
+          </span>
+        )}
+      </span>
+      {p.status === 'eliminated' && <span className="pill" title={p.exit?.note}>{p.exit?.reason === 'cut' ? 'Cut' : 'By host'}</span>}
+      {p.status === 'disqualified' && <span className="pill pill-warn" title={p.exit?.note}>DQ</span>}
+      <span className="mono tabular" style={{ fontSize: '0.82rem' }}>{p.score}</span>
+      {phase === 'lobby' ? (
+        <button className="btn btn-danger btn-sm" onClick={() => kickPlayer(p.id, p.name)} aria-label={`Kick ${p.name}`}>Kick</button>
+      ) : (
+        <>
+          {p.status === 'active' && (
+            <button className="btn btn-ghost btn-sm" onClick={() => eliminate(p.id, p.name)} aria-label={`Eliminate ${p.name}`}>Eliminate</button>
+          )}
+          {p.status !== 'disqualified' && (
+            <button className="btn btn-danger btn-sm" onClick={() => disqualify(p.id, p.name)} aria-label={`Disqualify ${p.name} for malpractice`} title="Disqualify (malpractice)">DQ</button>
+          )}
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div className="stage" data-level={level}>
@@ -232,6 +292,20 @@ export default function HostConsole() {
                 <span className="dim">Game complete — results saved. Use <strong className="heat">Reset game</strong> to run another round.</span>
               )}
             </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)', fontSize: '0.88rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={!!gameState?.hideFinalStandings}
+                onChange={e => toggleFinalStandings(e.target.checked)}
+              />
+              <span>
+                Hide standings in the final round
+                <span className="dim" style={{ display: 'block', fontSize: '0.78rem' }}>
+                  The projector keeps the leaderboard hidden during the last round; it's revealed on the final results.
+                  {gameState?.standingsHidden && <strong className="heat"> Hidden now.</strong>}
+                </span>
+              </span>
+            </label>
           </Panel>
 
           {/* End-of-level cut: review, adjust, confirm */}
@@ -285,33 +359,21 @@ export default function HostConsole() {
             {players.length === 0 ? (
               <p className="dim" style={{ textAlign: 'center', padding: '40px 20px', margin: 0, fontSize: '0.9rem' }}>No players yet</p>
             ) : (
-              players.map((p, idx) => (
-                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 20px', borderBottom: '1px solid var(--line)', opacity: p.connected && (p.status ?? 'active') === 'active' ? 1 : 0.5 }}>
-                  <span className="mono tabular faint" style={{ width: 26, fontSize: '0.72rem' }}>{String(idx + 1).padStart(2, '0')}</span>
-                  <span className={`dot ${p.connected ? 'dot-live' : ''}`} title={p.connected ? 'Online' : 'Offline'} />
-                  <span style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
-                    <span style={{ display: 'block', fontWeight: 600, fontSize: '0.92rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                    {(p.ticketId || flagged(p)) && (
-                      <span className="mono faint" style={{ fontSize: '0.7rem' }}>
-                        {p.ticketId}
-                        {flagged(p) && (
-                          <span style={{ color: 'var(--bad)', marginLeft: 6 }} title="Left the quiz screen during a question / very fast correct answers">
-                            ⚠ {p.flags.away ? `left screen ×${p.flags.away} (${Math.round(p.flags.awayMs / 1000)}s)` : ''}{p.flags.away && p.flags.fastCorrect ? ' · ' : ''}{p.flags.fastCorrect ? `fast ×${p.flags.fastCorrect}` : ''}
-                          </span>
-                        )}
-                      </span>
-                    )}
-                  </span>
-                  {p.status === 'eliminated' && <span className="pill">Out R{p.exit?.round}</span>}
-                  {p.status === 'disqualified' && <span className="pill pill-warn">DQ</span>}
-                  <span className="mono tabular" style={{ fontSize: '0.82rem' }}>{p.score}</span>
-                  {phase === 'lobby' ? (
-                    <button className="btn btn-danger btn-sm" onClick={() => kickPlayer(p.id, p.name)} aria-label={`Kick ${p.name}`}>Kick</button>
-                  ) : p.status !== 'disqualified' && (
-                    <button className="btn btn-danger btn-sm" onClick={() => disqualify(p.id, p.name)} aria-label={`Disqualify ${p.name}`}>DQ</button>
-                  )}
-                </div>
-              ))
+              <>
+                {active.map((p, idx) => playerRow(p, String(idx + 1).padStart(2, '0')))}
+                {outRounds.map(g => (
+                  <div key={g.round}>
+                    {groupHeader(`Out in round ${g.round}${g.levelName ? ` · ${g.levelName}` : ''}`, g.players.length)}
+                    {g.players.map(p => playerRow(p, `#${p.exit?.rank ?? '–'}`))}
+                  </div>
+                ))}
+                {disqualified.length > 0 && (
+                  <>
+                    {groupHeader('Disqualified', disqualified.length, 'var(--bad)')}
+                    {disqualified.map(p => playerRow(p, '—'))}
+                  </>
+                )}
+              </>
             )}
           </div>
         </Panel>

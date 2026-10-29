@@ -127,7 +127,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     }
     // Each player learns their own result (and whether they made the cut) only now, at the reveal.
     for (const p of Object.values(gameEngine.players)) {
-      sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p), standing: gameEngine.standingOf(p) });
+      sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p), standing: gameEngine.standingOf(p), roundEnd: result.roundEnd });
     }
     broadcastState();
     broadcastPlayers();
@@ -136,10 +136,10 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
   // The proposed cut (who goes through / who is out) for the host console and live monitor.
   const broadcastPendingCut = () => io.to('host').to('monitor').emit('cut_pending', gameEngine.pendingCutView());
 
-  // Tell every player their status and place (after a cut or a manual elimination).
-  const updateAllPlayers = () => {
+  // Tell every player their status and place (after a cut, with the round's outcome).
+  const updateAllPlayers = (roundEnd = null) => {
     for (const p of Object.values(gameEngine.players)) {
-      sendToPlayer(p, 'player_update', { player: gameEngine.privateView(p), standing: gameEngine.standingOf(p) });
+      sendToPlayer(p, 'player_update', { player: gameEngine.privateView(p), standing: gameEngine.standingOf(p), roundEnd });
     }
   };
 
@@ -156,7 +156,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     console.log(`Cut confirmed after ${result.elimination.levelName} by ${staff?.displayName}: ${result.elimination.advanced} through, ${result.out.length} eliminated`);
     io.emit('cut_result', { elimination: result.elimination, leaderboard: result.leaderboard });
     broadcastPendingCut(); // now null
-    updateAllPlayers();
+    updateAllPlayers(result.roundEnd);
     broadcastState();
     broadcastPlayers();
     return { success: true, eliminated: result.out.length };
@@ -315,6 +315,15 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       callback(confirmCut(staff));
     },
 
+    // Hide (or show) the projector's standings during the last round.
+    set_hide_final_standings(callback, data, staff) {
+      gameEngine.hideFinalStandings = data?.hide === true;
+      logEvent('setting_changed', { detail: { hideFinalStandings: gameEngine.hideFinalStandings, by: staff?.displayName ?? null } });
+      flushEvents();
+      broadcastState();
+      callback({ success: true, hide: gameEngine.hideFinalStandings });
+    },
+
     eliminate_player(callback, data, staff) {
       if (gameEngine.state === 'lobby') return callback({ error: 'The game has not started — use Kick in the lobby' });
       callback(eliminatePlayer(data?.playerId, data?.reason, staff));
@@ -461,6 +470,8 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
         player: result.player,
         gameState: gameEngine.getState(),
         myAnswer: gameEngine.answerFor(player),
+        standing: gameEngine.standingOf(player),
+        roundEnd: gameEngine.state === 'leaderboard' ? gameEngine.lastResult?.roundEnd ?? null : null,
       });
     });
 

@@ -34,6 +34,9 @@ function cutLabel({ rule, value }) {
 class GameEngine {
   constructor() {
     this.questions = [];
+    // Coordinator's choice, kept across resets: hide the standings during the last round so the
+    // winner is only revealed at the final results.
+    this.hideFinalStandings = false;
     this.reset();
   }
 
@@ -263,13 +266,14 @@ class GameEngine {
     const elimination = {
       level: pc.level, round: pc.info.round, levelName: pc.info.name, label: pc.info.cut.label,
       advanced: ranked.length - out.length,
-      eliminated: out.map(p => ({ id: p.id, name: p.name, rank: p.exit.rank, score: p.score })),
+      eliminated: out.map(p => ({ id: p.id, name: p.name, avatar: p.avatar, rank: p.exit.rank, score: p.score })),
     };
     // Survivors move up; prevRank lets the projector animate the change.
     const leaderboard = this.activePlayers().sort(byStanding)
       .map(p => ({ ...publicPlayer(p), prevRank: before.get(p.id).rank, prevScore: p.score }));
-    this.lastResult = { ...this.lastResult, leaderboard, elimination, pendingCut: null, atRisk: [] };
-    return { success: true, elimination, out, leaderboard };
+    const roundEnd = { round: pc.info.round, levelName: pc.info.name, isFinal: false, cutPending: false, cutLabel: pc.info.cut.label, eliminated: out.length };
+    this.lastResult = { ...this.lastResult, leaderboard, elimination, pendingCut: null, atRisk: [], roundEnd };
+    return { success: true, elimination, out, leaderboard, roundEnd };
   }
 
   // Coordinator eliminates one player directly (e.g. a panel decision). Not a disqualification:
@@ -530,6 +534,12 @@ class GameEngine {
         elimination = { level, round: proposal.info.round, levelName: proposal.info.name, label: proposal.info.cut.label, advanced: proposal.keep.size, eliminated: [] };
       }
     }
+    // Told to every phone at the reveal, so players know the round is over (and whether a cut follows).
+    const endedLevel = this.levelInfo(level);
+    const roundEnd = levelEnds ? {
+      round: endedLevel.round, levelName: endedLevel.name, isFinal: !next, cutPending: !!pendingCut,
+      cutLabel: endedLevel.cut?.label ?? null, eliminated: 0,
+    } : null;
 
     this.lastResult = {
       state: this.state,
@@ -545,6 +555,7 @@ class GameEngine {
       cutLabel: proposal ? proposal.info.cut.label : null,
       pendingCut,
       elimination,
+      roundEnd,
       hasImage: !!q.image,
       questionIndex: this.currentQuestionIndex - 1,
       isLastQuestion: !next || this.activePlayers().length === 0,
@@ -583,6 +594,9 @@ class GameEngine {
       levelConfig: this.levelInfo(this.currentLevel),
       playersLeft: this.activePlayers().length,
       cutPending: !!this.pendingCut,
+      hideFinalStandings: this.hideFinalStandings,
+      standingsHidden: this.hideFinalStandings && this.state !== 'lobby' && this.state !== 'podium'
+        && this.levelNumbers().at(-1) === this.currentLevel,
       questionStartTime: this.questionStartTime,
       questionEndsAt: this.questionEndsAt,
       serverNow: Date.now(),
