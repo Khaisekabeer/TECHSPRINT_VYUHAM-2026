@@ -12,198 +12,12 @@ const PHASE_LABEL: Record<string, string> = {
   podium: 'Final results',
 };
 
-// Preview data for the reveal (?preview=leaderboard&n=40): long names and rank changes, to check
-// the standings fit on the projector.
-function mockBoard() {
-  const names = ['Aarav Nair', 'Muhammed Noufan K', 'Harikrishnan Menon', 'Sreelakshmi Prakash', 'Karthik Raghunath', 'Sivaprasad Unnikrish', 'Kavya Balachandran', 'Aleena Mariam Joseph', 'Siddharth Varma', 'Yadukrishnan P S'];
-  const n = Math.max(1, Math.min(120, Number(new URLSearchParams(window.location.search).get('n')) || 10));
-  return Array.from({ length: n }, (_, i) => ({
-    id: String(i + 1), name: names[i % names.length] + (i >= names.length ? ` ${Math.floor(i / names.length) + 1}` : ''),
-    avatar: `${i % 2 ? 'a' : 'b'}:seed${i}`, score: 4200 - i * 37, streak: i % 4, status: 'active', connected: true,
-    prevRank: ((i * 7) % n) + 1, prevScore: 4200 - i * 37 - (i % 3) * 250,
-  }));
-}
-
-// ─── Demo game (?preview=demo&n=20) ───────────────────────────────────────────
-// Two rounds with a cut in between, driven by timers in the browser: lobby → intro → questions →
-// reveals (standings animate) → the cut → final round → podium, then it starts again.
-const DEMO_LEVELS = [
-  { number: 1, name: 'Warm-up', multiplier: 1, cutPercent: 60 },
-  { number: 2, name: 'Final Sprint', multiplier: 2, cutPercent: null },
-];
-const DEMO_QUESTIONS = [
-  { level: 1, text: 'Which language is used to style a web page?', options: ['HTML', 'CSS', 'Python', 'SQL'], answer: 'CSS',
-    explanation: 'CSS (Cascading Style Sheets) controls how a page looks. HTML gives it structure; Python and SQL are not styling languages.' },
-  { level: 1, text: 'What does CPU stand for?', options: ['Central Processing Unit', 'Computer Power Unit', 'Core Program Utility', 'Central Peripheral Unit'], answer: 'Central Processing Unit',
-    explanation: 'The CPU is the chip that carries out a program’s instructions, one step at a time.' },
-  { level: 1, text: 'Which of these is a version control system?', options: ['Docker', 'Git', 'Nginx', 'Linux'], answer: 'Git',
-    explanation: 'Git records every change to your code so you can go back, branch and merge work with others.' },
-  { level: 2, text: 'Which data structure serves items first-in, first-out?', options: ['Stack', 'Queue', 'Tree', 'Hash map'], answer: 'Queue',
-    explanation: 'A queue serves items in the order they arrived, like a line at a ticket counter. A stack is last-in, first-out.' },
-  { level: 2, text: 'HTTP status 404 means…', options: ['Server error', 'Not found', 'Unauthorised', 'Moved permanently'], answer: 'Not found',
-    explanation: '404 means the server was reached but has nothing at that address. 500 is a server error, 401 unauthorised, 301 moved.' },
-];
-const DEMO_NAMES = ['Aarav Nair', 'Muhammed Noufan K', 'Harikrishnan Menon', 'Sreelakshmi Prakash', 'Karthik Raghunath', 'Sivaprasad Unnikrish',
-  'Kavya Balachandran', 'Aleena Mariam Joseph', 'Siddharth Varma', 'Yadukrishnan P S', 'Diya Menon', 'Rohan Pillai', 'Ananya Thomas',
-  'Arjun Varghese', 'Fathima Rahman', 'Nikhil Das', 'Gauri Krishnan', 'Adil Babu', 'Theertha George', 'Midhun Kumar'];
-
-function runDemo({ setGameState, setPlayers, setQuestionResult, setAnswerCount }: {
-  setGameState: (s: any) => void; setPlayers: (p: any[]) => void; setQuestionResult: (r: any) => void;
-  setAnswerCount: (c: { answered: number; total: number }) => void;
-}) {
-  const timers: number[] = [];
-  let stopped = false;
-  const sleep = (ms: number) => new Promise<void>(resolve => { timers.push(window.setTimeout(resolve, ms)); });
-  const n = Math.max(2, Math.min(120, Number(new URLSearchParams(window.location.search).get('n')) || 20));
-  const byStanding = (a: any, b: any) => b.score - a.score;
-  const publicOf = (p: any) => ({ id: p.id, name: p.name, avatar: p.avatar, score: p.score, streak: p.streak, status: p.status, connected: true });
-  const levelConfig = (lv: typeof DEMO_LEVELS[number]) => ({ name: lv.name, multiplier: lv.multiplier });
-
-  async function play() {
-    const players = Array.from({ length: n }, (_, i) => ({
-      id: `d${i}`, name: DEMO_NAMES[i % DEMO_NAMES.length] + (i >= DEMO_NAMES.length ? ` ${Math.floor(i / DEMO_NAMES.length) + 1}` : ''),
-      avatar: `${i % 3 ? 'b' : 'a'}:demo${i}`, score: 0, streak: 0, status: 'active', skill: 0.35 + Math.random() * 0.55,
-    }));
-    const active = () => players.filter(p => p.status === 'active');
-    const base = { totalQuestions: DEMO_QUESTIONS.length, totalLevels: DEMO_LEVELS.length };
-
-    // Lobby: players join one by one.
-    setQuestionResult(null);
-    setGameState({ ...base, state: 'lobby', currentLevel: 1 });
-    for (let i = 1; i <= n && !stopped; i++) {
-      setPlayers(players.slice(0, i).map(publicOf));
-      await sleep(Math.max(60, 4000 / n));
-    }
-    await sleep(2500);
-
-    for (const level of DEMO_LEVELS) {
-      if (stopped) return;
-      setGameState({ ...base, state: 'intro', currentLevel: level.number, levelConfig: levelConfig(level) });
-      await sleep(3500);
-      const questions = DEMO_QUESTIONS.map((q, i) => ({ ...q, index: i })).filter(q => q.level === level.number);
-      for (const q of questions) {
-        if (stopped) return;
-        const timeLimit = 10;
-        const now = Date.now();
-        setQuestionResult(null);
-        setGameState({
-          ...base, state: 'question', currentLevel: level.number, levelConfig: levelConfig(level), currentQuestionIndex: q.index,
-          currentQuestion: { id: `q${q.index}`, text: q.text, options: q.options, timeLimit }, questionEndsAt: now + timeLimit * 1000, serverNow: now,
-        });
-        const total = active().length;
-        for (let t = 0; t < 16 && !stopped; t++) {
-          setAnswerCount({ answered: Math.min(total, Math.round(total * (1 - Math.pow(0.78, t + 1)))), total });
-          await sleep(timeLimit * 1000 / 16);
-        }
-
-        // Reveal: score the answers, then show the old order and let the standings climb.
-        const before = new Map(active().sort(byStanding).map((p, i) => [p.id, { rank: i + 1, score: p.score }]));
-        const stats: Record<string, number> = Object.fromEntries(q.options.map(o => [o, 0]));
-        let fastest: any = null;
-        for (const p of active()) {
-          const correct = Math.random() < p.skill;
-          stats[correct ? q.answer : q.options.filter(o => o !== q.answer)[Math.floor(Math.random() * 3)]] += 1;
-          if (correct) {
-            p.score += Math.round(1000 * level.multiplier * (0.5 + Math.random() * 0.5));
-            p.streak += 1;
-            if (!fastest || Math.random() < 0.3) fastest = p;
-          } else p.streak = 0;
-        }
-        const ranked = active().sort(byStanding);
-        const leaderboard = ranked.map(p => ({ ...publicOf(p), prevRank: before.get(p.id)!.rank, prevScore: before.get(p.id)!.score }));
-        const isLevelEnd = q === questions[questions.length - 1];
-        const isFinal = isLevelEnd && level === DEMO_LEVELS[DEMO_LEVELS.length - 1];
-        const keep = level.cutPercent ? Math.ceil(ranked.length * level.cutPercent / 100) : ranked.length;
-        const cutLabel = level.cutPercent ? `Top ${level.cutPercent}% go through` : null;
-        const atRisk = ranked.slice(keep).map(p => p.id);
-        const pendingCut = isLevelEnd && atRisk.length ? { label: cutLabel, advancing: keep, out: atRisk.length } : null;
-        const roundEnd = isLevelEnd ? { round: level.number, levelName: level.name, isFinal, cutPending: !!pendingCut, cutLabel, eliminated: 0 } : null;
-        const result = {
-          correctAnswer: q.answer, explanation: q.explanation, stats, speedStar: fastest ? `${fastest.name} (${(1 + Math.random() * 3).toFixed(1)}s)` : null,
-          leaderboard, atRisk, cutLabel, pendingCut, elimination: null, roundEnd,
-        };
-        setPlayers(players.map(publicOf));
-        setQuestionResult(result);
-        setGameState({ ...base, state: 'leaderboard', currentLevel: level.number, levelConfig: levelConfig(level), currentQuestionIndex: q.index + 1 });
-        await sleep(pendingCut ? 6000 : 9000);
-
-        // End of the round: the coordinator confirms the cut, the projector shows who went out.
-        if (pendingCut) {
-          const out = ranked.slice(keep);
-          out.forEach(p => { p.status = 'eliminated'; });
-          const survivors = active().sort(byStanding);
-          setPlayers(players.map(publicOf));
-          setQuestionResult({
-            ...result, pendingCut: null, atRisk: [],
-            leaderboard: survivors.map((p, i) => ({ ...publicOf(p), prevRank: ranked.indexOf(p) + 1 || i + 1, prevScore: p.score })),
-            elimination: { level: level.number, round: level.number, levelName: level.name, label: cutLabel, advanced: survivors.length,
-              eliminated: out.map((p, i) => ({ id: p.id, name: p.name, avatar: p.avatar, rank: keep + i + 1, score: p.score })) },
-            roundEnd: { ...roundEnd, cutPending: false, eliminated: out.length },
-          });
-          await sleep(8000);
-        }
-      }
-    }
-    if (stopped) return;
-    const final = [...active().sort(byStanding), ...players.filter(p => p.status !== 'active').sort(byStanding)].map(publicOf);
-    setGameState({ ...base, state: 'podium', currentLevel: DEMO_LEVELS.length, finalLeaderboard: final });
-    await sleep(12000);
-    if (!stopped) play();
-  }
-
-  play();
-  return () => { stopped = true; timers.forEach(clearTimeout); };
-}
-
-const MOCK_BIGSCREEN_PREVIEWS: Record<string, any> = {
-  leaderboard: {
-    gameState: { state: 'leaderboard', currentLevel: 1, serverNow: Date.now() },
-    players: [
-      { id: '1', name: 'Aarav Nair', score: 1420, streak: 4, status: 'active', connected: true },
-      { id: '2', name: 'Diya Menon', score: 1280, streak: 3, status: 'active', connected: true },
-      { id: '3', name: 'Rohan Pillai', score: 1150, streak: 2, status: 'active', connected: true },
-      { id: '4', name: 'Ananya Thomas', score: 990, streak: 1, status: 'active', connected: true },
-      { id: '5', name: 'Arjun Varghese', score: 870, streak: 0, status: 'active', connected: true },
-      { id: '6', name: 'Sneha Kumar', score: 740, streak: 2, status: 'active', connected: true },
-      { id: '7', name: 'Rahul Joseph', score: 620, streak: 0, status: 'active', connected: true },
-      { id: '8', name: 'Fathima Rahman', score: 550, streak: 1, status: 'active', connected: true },
-    ],
-    questionResult: {
-      correctAnswer: 'CSS',
-      explanation: 'CSS (Cascading Style Sheets) controls how a page looks. HTML gives it structure, and Python and SQL are not styling languages.',
-      stats: { 'HTML': 4, 'CSS': 18, 'Python': 2, 'SQL': 1 },
-      speedStar: 'Aarav Nair (1.4s)',
-      leaderboard: mockBoard(),
-    },
-  },
-  podium: {
-    gameState: {
-      state: 'podium',
-      currentLevel: 3,
-      serverNow: Date.now(),
-      finalLeaderboard: [
-        { id: '1', name: 'Aarav Nair', score: 4850, place: 1 },
-        { id: '2', name: 'Diya Menon', score: 4320, place: 2 },
-        { id: '3', name: 'Rohan Pillai', score: 3910, place: 3 },
-        { id: '4', name: 'Ananya Thomas', score: 3200, place: 4 },
-        { id: '5', name: 'Arjun Varghese', score: 2950, place: 5 },
-        { id: '6', name: 'Sneha Kumar', score: 2700, place: 6 },
-        { id: '7', name: 'Rahul Joseph', score: 2450, place: 7 },
-      ],
-    },
-    players: [],
-    questionResult: null,
-  },
-};
-
 export default function BigScreen() {
   const { socket, isConnected } = useSocket();
-  const previewMode = new URLSearchParams(window.location.search).get('preview');
-  const mock = previewMode ? MOCK_BIGSCREEN_PREVIEWS[previewMode] : null;
 
-  const [gameState, setGameState] = useState<any>(mock?.gameState || null);
-  const [players, setPlayers] = useState<any[]>(mock?.players || []);
-  const [questionResult, setQuestionResult] = useState<any>(mock?.questionResult || null);
+  const [gameState, setGameState] = useState<any>(null);
+  const [players, setPlayers] = useState<any[]>([]);
+  const [questionResult, setQuestionResult] = useState<any>(null);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
   const [serverInfo, setServerInfo] = useState<{ lanAddresses: string[] } | null>(null);
 
@@ -213,14 +27,8 @@ export default function BigScreen() {
   );
   const maxTime = gameState?.currentQuestion?.timeLimit || 20;
 
-  // ?preview=demo&n=20: plays a short made-up game on this screen (no server), looping.
   useEffect(() => {
-    if (previewMode !== 'demo') return;
-    return runDemo({ setGameState, setPlayers, setQuestionResult, setAnswerCount });
-  }, [previewMode]);
-
-  useEffect(() => {
-    if (previewMode || !isConnected) return;
+    if (!isConnected) return;
 
     socket.on('game_state', (state) => {
       setGameState(state);
