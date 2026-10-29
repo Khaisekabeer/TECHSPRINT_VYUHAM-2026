@@ -618,41 +618,41 @@ textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
 .avatar-pick:hover { transform: scale(1.06); }
 .avatar-pick.picked { border-color: var(--bone); transform: scale(1.1); box-shadow: var(--shadow-md); }
 
-/* ─── Standings (projector): layout adapts to how many are still in ───────── */
-.standings { display: grid; width: 100%; height: 100%; min-height: 0; }
-/* Crowd (30+): compact tiles in a dense grid, filled column by column. */
-.standings.crowd { grid-auto-flow: column; gap: 0.6vh 0.7vw; }
-.standings.crowd .st-row { padding: 0.35vh 0.5vw; gap: 0.5vw; border-radius: 8px; }
-.standings.crowd .st-rank { font-size: clamp(0.8rem, 1.1vw, 1.2rem); width: 2.2em; }
-.standings.crowd .st-name { font-size: clamp(0.75rem, 1vw, 1.1rem); }
-.standings.crowd .st-score { font-size: clamp(0.7rem, 0.9vw, 1rem); opacity: 0.7; }
-.st-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
-/* Pack (11–30): rows in 2–3 columns. */
-.standings.pack { grid-auto-flow: column; gap: 0.9vh 1.2vw; }
-.standings.pack .st-row { padding: 0.6vh 0.9vw; gap: 0.9vw; }
-.standings.pack .st-rank { font-size: clamp(1rem, 1.6vw, 1.8rem); width: 2em; }
-.standings.pack .st-name { font-size: clamp(1rem, 1.5vw, 1.7rem); }
-.standings.pack .st-score { font-size: clamp(1rem, 1.6vw, 1.8rem); }
-/* Finalists (≤10): big character cards. */
-.standings.finalists { grid-auto-flow: column; gap: 1.6vh 1.6vw; }
-.standings.finalists .st-row { padding: 1.2vh 1.4vw; gap: 1.3vw; box-shadow: var(--shadow-lg); }
-.standings.finalists .st-rank { font-size: clamp(1.8rem, 3vw, 3.4rem); width: 1.6em; }
-.standings.finalists .st-name { font-size: clamp(1.4rem, 2.4vw, 2.8rem); }
-.standings.finalists .st-score { font-size: clamp(1.4rem, 2.4vw, 2.8rem); }
+/* ─── Standings (projector): every row sized from the space it has ───────────
+   .standings-box is the size container; --rows comes from the component. The text size
+   follows the row height but never outgrows the column width, so names and scores always fit. */
+.standings-box { container-type: size; width: 100%; height: 100%; min-height: 0; }
+.standings {
+  --gap-y: 1.1cqh;
+  --row-h: calc((100cqh - (var(--rows) - 1) * var(--gap-y)) / var(--rows));
+  --fs: min(calc(var(--row-h) * 0.42), 5.5cqw, 2.8rem);
+  --av: min(calc(var(--row-h) * 0.74), calc(var(--fs) * 2.2));
+  display: grid;
+  grid-auto-flow: column;
+  gap: var(--gap-y);
+  width: 100%;
+  height: 100%;
+}
 
 .st-row {
   display: flex;
   align-items: center;
+  gap: calc(var(--fs) * 0.55);
   min-width: 0;
+  padding: 0 calc(var(--fs) * 0.7);
+  font-size: var(--fs);
   background: var(--ink-0);
   color: var(--bone);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
-.st-rank { font-family: var(--font-display); font-weight: 900; text-align: center; flex-shrink: 0; line-height: 1; }
-.st-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-score { font-family: var(--font-display); font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.st-rank { font-family: var(--font-display); font-weight: 900; font-size: 1.15em; min-width: 1.7em; text-align: center; flex-shrink: 0; line-height: 1; }
+.st-name { flex: 1; min-width: 0; font-weight: 700; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-score { font-family: var(--font-display); font-weight: 800; font-size: 1.1em; font-variant-numeric: tabular-nums; flex-shrink: 0; line-height: 1; }
+.st-fire { flex-shrink: 0; font-family: var(--font-display); font-weight: 800; font-size: 0.8em; white-space: nowrap; }
+
 .st-row.first { background: var(--heat); color: var(--ink-0); border-color: transparent; box-shadow: var(--shadow-lg); }
 .st-row.first .avatar { border-color: rgba(255, 255, 255, 0.5); }
 .st-row.podium { background: linear-gradient(135deg, var(--ink-0), var(--ink-2)); }
@@ -660,8 +660,7 @@ textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
 .st-row.danger { background: var(--ink-2); border: 1px dashed var(--line-strong); color: var(--bone-dim); box-shadow: none; }
 .st-row.offline { opacity: 0.55; }
 /* Rank change since the last question. */
-.st-delta { flex-shrink: 0; font-family: var(--font-mono); font-weight: 600; font-size: 0.7em; padding: 0.1em 0.4em; border-radius: 6px; animation: pop 0.5s var(--ease-out) backwards; }
+.st-delta { flex-shrink: 0; font-family: var(--font-mono); font-weight: 600; font-size: 0.55em; padding: 0.15em 0.45em; border-radius: 6px; animation: pop 0.5s var(--ease-out) backwards; }
 .st-delta.up { color: #15803d; background: #dcfce7; }
 .st-delta.down { color: #b91c1c; background: #fee2e2; }
 .st-row.first .st-delta.up { color: #bbf7d0; background: rgba(255, 255, 255, 0.12); }
-.st-stack .st-delta { margin-left: 0.4em; font-size: 0.85em; }
