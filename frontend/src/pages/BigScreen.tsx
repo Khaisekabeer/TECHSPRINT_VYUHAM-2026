@@ -27,6 +27,7 @@ const MOCK_BIGSCREEN_PREVIEWS: Record<string, any> = {
     ],
     questionResult: {
       correctAnswer: 'CSS',
+      explanation: 'CSS (Cascading Style Sheets) controls how a page looks. HTML gives it structure, and Python and SQL are not styling languages.',
       stats: { 'HTML': 4, 'CSS': 18, 'Python': 2, 'SQL': 1 },
       speedStar: 'Aarav Nair (1.4s)',
       leaderboard: [
@@ -312,6 +313,12 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
         <Rise d={80} as="h2" className="display slam" style={{ fontSize: 'clamp(3rem, 5.5vw, 6.5rem)', color: 'var(--good)', margin: '1.5vh 0 4vh', overflowWrap: 'anywhere' }}>
           {result?.correctAnswer ?? '—'}
         </Rise>
+        {result?.explanation && (
+          <Rise d={250} className="panel" style={{ margin: '-2vh 0 3.5vh', padding: '1.6vh 1.4vw', borderLeft: '4px solid var(--good)' }}>
+            <div className="eyebrow" style={{ fontSize: '0.75rem', marginBottom: '0.8vh' }}>Why?</div>
+            <p style={{ margin: 0, fontSize: 'clamp(1.05rem, 1.5vw, 1.7rem)', lineHeight: 1.4, fontWeight: 500, textWrap: 'pretty' }}>{result.explanation}</p>
+          </Rise>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.6vh' }}>
           {stats.map(([option, count], idx) => {

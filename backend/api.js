@@ -47,6 +47,8 @@ function validateQuestion(body) {
     ? ['True', 'False']
     : (Array.isArray(body.options) ? body.options.map(o => str(o, 160)).filter(Boolean) : []);
   const correctAnswer = str(body.correctAnswer, 160);
+  // Optional: why the answer is right, shown on the projector and phones after the reveal.
+  const explanation = str(body.explanation, 600);
   const timeLimit = Math.round(Number(body.timeLimit));
   const points = Math.round(Number(body.points));
 
@@ -60,7 +62,7 @@ function validateQuestion(body) {
   // Optional picture for "identify this person / object" questions (uploaded separately, encrypted).
   const imageId = body.imageId == null || body.imageId === '' ? null : String(body.imageId);
   check(imageId === null || UUID_RE.test(imageId), 'Invalid image');
-  return { level, type, text, options, correctAnswer, timeLimit, points, imageId, isActive: body.isActive !== false };
+  return { level, type, text, options, correctAnswer, explanation, timeLimit, points, imageId, isActive: body.isActive !== false };
 }
 
 /**
@@ -534,7 +536,7 @@ module.exports = function createApi(hooks) {
   const qm = [requireStaff(QM), requireVault];
   const dekOf = req => req.session.dek;
   const bankOf = req => req.session.bankId;
-  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId });
+  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, explanation: q.explanation, imageId: q.imageId });
   const changed = req => hooks.onQuestionsChanged(dekOf(req), bankOf(req));
   // The image a stored question points to (inside its encrypted content).
   const imageOf = async (req, id) => {

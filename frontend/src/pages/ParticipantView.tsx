@@ -43,6 +43,7 @@ export default function ParticipantView() {
       gameState: { state: 'leaderboard', currentLevel: 1 },
       playerInfo: { name: 'Rohan Pillai', score: 1150 },
       answerResult: { isCorrect: false, points: 0, badge: null },
+      reveal: { correctAnswer: 'CSS', explanation: 'CSS (Cascading Style Sheets) controls how a page looks; HTML gives it structure.' },
     },
   } as Record<string, any>)[previewMode] : null;
 
@@ -58,6 +59,8 @@ export default function ParticipantView() {
   const [roundEnd, setRoundEnd] = useState<any>(null);
   // Our place among the players still in: { rank, of, atRisk, cutLabel }.
   const [standing, setStanding] = useState<any>(null);
+  // The last question's answer and its explanation, shown at the reveal: { correctAnswer, explanation }.
+  const [reveal, setReveal] = useState<any>(mock?.reveal || null);
   const [message, setMessage] = useState('');
   const [rejoining, setRejoining] = useState(() => !mock && !!storage.get());
   const questionIndexRef = useRef<number | null>(null);
@@ -77,6 +80,7 @@ export default function ParticipantView() {
       questionIndexRef.current = state.currentQuestionIndex;
       setSelectedOption(null);
       setAnswerResult(null);
+      setReveal(null);
       setMessage('');
     }
   };
@@ -105,6 +109,7 @@ export default function ParticipantView() {
       setAnswerResult(res.myAnswer);
       setStanding(res.standing ?? null);
       setRoundEnd(res.roundEnd ?? null);
+      setReveal({ correctAnswer: res.correctAnswer, explanation: res.explanation });
       if (res.myAnswer?.isCorrect) {
         confetti({ particleCount: 70, spread: 60, origin: { y: 0.7 }, colors: ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'] });
         if (navigator.vibrate) navigator.vibrate(150);
@@ -165,6 +170,7 @@ export default function ParticipantView() {
       setAnswerResult(res.myAnswer);
       setStanding(res.standing ?? null);
       setRoundEnd(res.roundEnd ?? null);
+      setReveal(res.reveal ?? null);
     });
   }, [socket, isConnected]);
 
@@ -497,9 +503,26 @@ export default function ParticipantView() {
             </Rise>
           )}
 
+          {reveal?.correctAnswer && (
+            <Rise d={320} className="panel" style={{ marginTop: 28, padding: '14px 18px', width: '100%', textAlign: 'left', borderLeft: '4px solid var(--good)' }}>
+              {!isCorrect && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span className="eyebrow">Correct answer</span>
+                  <strong style={{ color: 'var(--good)', fontSize: '1.05rem' }}>{reveal.correctAnswer}</strong>
+                </div>
+              )}
+              {reveal.explanation && (
+                <p style={{ margin: isCorrect ? 0 : '8px 0 0', fontSize: '0.92rem', lineHeight: 1.5, color: 'var(--bone)' }}>
+                  {isCorrect && <span className="eyebrow" style={{ display: 'block', marginBottom: 4 }}>Why?</span>}
+                  {reveal.explanation}
+                </p>
+              )}
+            </Rise>
+          )}
+
           {roundEnd && !roundEnd.isFinal && <RoundEndNotice roundEnd={roundEnd} standing={standing} />}
 
-          <Rise d={480} className="panel bracketed" style={{ marginTop: roundEnd && !roundEnd.isFinal ? 16 : 40, padding: '16px 28px', width: '100%' }}>
+          <Rise d={480} className="panel bracketed" style={{ marginTop: (roundEnd && !roundEnd.isFinal) || reveal?.correctAnswer ? 16 : 40, padding: '16px 28px', width: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Avatar id={playerInfo.avatar} size={34} />

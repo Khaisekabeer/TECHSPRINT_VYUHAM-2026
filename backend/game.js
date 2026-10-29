@@ -127,7 +127,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     }
     // Each player learns their own result (and whether they made the cut) only now, at the reveal.
     for (const p of Object.values(gameEngine.players)) {
-      sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p), standing: gameEngine.standingOf(p), roundEnd: result.roundEnd });
+      sendToPlayer(p, 'my_result', { player: gameEngine.privateView(p), myAnswer: gameEngine.answerFor(p), standing: gameEngine.standingOf(p), roundEnd: result.roundEnd, correctAnswer: result.correctAnswer, explanation: result.explanation });
     }
     broadcastState();
     broadcastPlayers();
@@ -472,6 +472,9 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
         myAnswer: gameEngine.answerFor(player),
         standing: gameEngine.standingOf(player),
         roundEnd: gameEngine.state === 'leaderboard' ? gameEngine.lastResult?.roundEnd ?? null : null,
+        reveal: gameEngine.state === 'leaderboard' && gameEngine.lastResult
+          ? { correctAnswer: gameEngine.lastResult.correctAnswer, explanation: gameEngine.lastResult.explanation }
+          : null,
       });
     });
 
