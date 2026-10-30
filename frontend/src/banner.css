@@ -1,0 +1,456 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   TECHSPRINT · banners in the portal theme (/banner)
+   Uses the portal's own tokens from index.css: white ink, near-black type,
+   grey rings and grid, corner-bracket panels, the same three fonts.
+   Every size is in cqw (1% of the banner width), so a 1920×1080 artboard
+   scales to any screen and exports at the same proportions.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.banner-page {
+  min-height: 100svh;
+  margin: 0;
+  background: var(--ink-1);
+  color: var(--bone);
+  font-family: var(--font-body);
+}
+
+.banner-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.banner-bar a { color: var(--bone); text-decoration: none; border-bottom: 1px solid var(--line-strong); }
+.banner-bar a:hover { border-color: var(--bone); }
+.banner-bar h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+}
+
+.banner-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 16px 80px;
+}
+.banner-cap {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.banner-cap a { color: var(--bone); }
+
+/* Full-screen view (?view=event|rules): just the banner, letterboxed */
+.banner-solo {
+  min-height: 100svh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+  background: var(--ink-2);
+}
+.banner-solo .poster { width: min(100vw, 177.78svh); }
+
+/* ─── Poster ───────────────────────────────────────────────────────────────── */
+.poster {
+  position: relative;
+  container-type: inline-size;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  isolation: isolate;
+  background: var(--ink-0);
+  color: var(--bone);
+  font-family: var(--font-body);
+  text-align: left;
+}
+.poster h1,
+.poster h2,
+.poster h3,
+.poster p,
+.poster ol { margin: 0; padding: 0; }
+.poster > * { position: absolute; z-index: 1; }
+
+/* Faint tactical grid, faded out toward the edges (as the portal's .stage-grid) */
+.poster::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(var(--line) 0.15cqw, transparent 0.15cqw),
+    linear-gradient(90deg, var(--line) 0.15cqw, transparent 0.15cqw);
+  background-size: 2.5cqw 2.5cqw;
+  mask-image: radial-gradient(ellipse at 50% 40%, black 10%, transparent 75%);
+}
+
+.poster-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 1.05cqw;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+/* Brand: logo, name, and the festival tag, as the portal's <Brand /> */
+.poster-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8cqw;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 2.4cqw;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.poster-brand img { height: 3.2cqw; width: auto; display: block; }
+.poster-brand span {
+  margin-left: 0.4cqw;
+  padding-left: 0.9cqw;
+  border-left: 1px solid var(--line-strong);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 0.95cqw;
+  letter-spacing: 0.18em;
+  color: var(--bone-dim);
+}
+
+/* Pill chip, as the portal's .chip */
+.poster-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6cqw;
+  padding: 0.7cqw 1.4cqw;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--ink-0);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-mono);
+  font-size: 0.95cqw;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+
+/* Corner-bracket panel, as the portal's .panel.bracketed */
+.poster-panel {
+  background: var(--ink-0);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+.poster-panel::before,
+.poster-panel::after {
+  content: '';
+  position: absolute;
+  width: 1.6cqw;
+  height: 1.6cqw;
+  border-color: var(--heat);
+  border-style: solid;
+  pointer-events: none;
+}
+.poster-panel::before { top: -1px; left: -1px; border-width: 0.15cqw 0 0 0.15cqw; }
+.poster-panel::after { bottom: -1px; right: -1px; border-width: 0 0.15cqw 0.15cqw 0; }
+
+/* ─── Event banner ─────────────────────────────────────────────────────────── */
+.poster-event .poster-top {
+  top: 3.6cqw;
+  left: 4.2cqw;
+  right: 4.2cqw;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.poster-rings {
+  position: absolute;
+  top: 6cqw;
+  right: -8cqw;
+  width: 62cqw;
+  height: 62cqw;
+  color: var(--ring);
+  overflow: visible;
+}
+
+/* CENTER-ALIGNED title block for the event banner */
+.poster-event .poster-title-center {
+  top: 12cqw;
+  left: 0;
+  right: 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.poster-event .poster-title-center .poster-eyebrow {
+  margin-bottom: 1.6cqw;
+}
+.poster-event h2 {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 14cqw;
+  line-height: 0.86;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.poster-event .poster-sub {
+  margin-top: 2cqw;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 3.8cqw;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+/* ─── Running man animation ────────────────────────────────────────────────── */
+.runner-container {
+  position: absolute;
+  z-index: 2;
+  right: 6cqw;
+  top: 12cqw;
+  width: 26cqw;
+  height: 44cqw;
+  color: var(--bone);
+  pointer-events: none;
+  opacity: 0.18;
+}
+
+/* Individual runner frames — cycle through for animation */
+.runner-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  animation: runner-cycle 0.6s steps(1) infinite;
+}
+
+.runner-f1 { animation-delay: 0s; }
+.runner-f2 { animation-delay: 0.15s; }
+.runner-f3 { animation-delay: 0.3s; }
+.runner-f4 { animation-delay: 0.45s; }
+
+@keyframes runner-cycle {
+  0%   { opacity: 1; }
+  25%  { opacity: 0; }
+  100% { opacity: 0; }
+}
+
+/* Speed motion lines behind the runner */
+.runner-speed-lines {
+  position: absolute;
+  top: 30%;
+  left: -15cqw;
+  width: 18cqw;
+  height: 40%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+}
+.runner-speed-lines span {
+  display: block;
+  height: 0.15cqw;
+  background: linear-gradient(90deg, transparent, var(--bone));
+  border-radius: 1cqw;
+  animation: speed-line 0.8s ease-in-out infinite;
+  opacity: 0;
+}
+.runner-speed-lines span:nth-child(1) { width: 12cqw; animation-delay: 0s; }
+.runner-speed-lines span:nth-child(2) { width: 8cqw; animation-delay: 0.15s; }
+.runner-speed-lines span:nth-child(3) { width: 15cqw; animation-delay: 0.3s; }
+.runner-speed-lines span:nth-child(4) { width: 6cqw; animation-delay: 0.45s; }
+.runner-speed-lines span:nth-child(5) { width: 10cqw; animation-delay: 0.6s; }
+
+@keyframes speed-line {
+  0%   { opacity: 0; transform: translateX(5cqw); }
+  30%  { opacity: 0.4; }
+  60%  { opacity: 0.2; }
+  100% { opacity: 0; transform: translateX(-3cqw); }
+}
+
+/* ─── Event footer ─────────────────────────────────────────────────────────── */
+.poster-event .poster-foot {
+  left: 4.2cqw;
+  right: 4.2cqw;
+  bottom: 3.6cqw;
+  padding-top: 1.6cqw;
+  border-top: 1px solid var(--bone);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.poster-date strong {
+  display: block;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 4.2cqw;
+  line-height: 0.9;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.poster-date span {
+  display: block;
+  margin-top: 0.6cqw;
+  font-family: var(--font-mono);
+  font-size: 1.2cqw;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+.poster-url {
+  font-family: var(--font-mono);
+  font-size: 1.25cqw;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+
+/* ─── Rules banner ─────────────────────────────────────────────────────────── */
+.poster-rules .poster-head {
+  top: 3.6cqw;
+  left: 4.2cqw;
+  right: 4.2cqw;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.poster-rules .poster-head .poster-eyebrow { margin-top: 0; }
+.poster-rules h2 {
+  margin-top: 1.2cqw;
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 8cqw;
+  line-height: 0.86;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.poster-rules .poster-lead {
+  margin-top: 0.9cqw;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.2cqw;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bone-dim);
+}
+
+.poster-rules .poster-list {
+  top: 18cqw;
+  left: 4.2cqw;
+  right: 4.2cqw;
+  bottom: 11.4cqw;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(4, 1fr);
+  grid-auto-flow: column;
+  column-gap: 4.6cqw;
+  list-style: none;
+}
+.poster-rules li {
+  display: grid;
+  grid-template-columns: 3.4cqw 1fr;
+  column-gap: 1.6cqw;
+  align-content: start;
+  padding-top: 1cqw;
+  border-top: 1px solid var(--line-strong);
+}
+.poster-rules .rule-no {
+  display: grid;
+  place-items: center;
+  width: 3.4cqw;
+  height: 3.4cqw;
+  background: var(--heat);
+  color: var(--ink-0);
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 1.8cqw;
+  line-height: 1;
+}
+.poster-rules h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 2.1cqw;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+.poster-rules .rule-text {
+  margin-top: 0.5cqw;
+  font-size: 1.05cqw;
+  line-height: 1.45;
+  color: var(--bone-dim);
+}
+
+.poster-rules .poster-foot {
+  left: 4.2cqw;
+  right: 4.2cqw;
+  bottom: 2.4cqw;
+  padding-top: 1.6cqw;
+  border-top: 1px solid var(--bone);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 2cqw;
+}
+.poster-rules .poster-foot .poster-eyebrow { font-size: 1.2cqw; }
+.poster-rules .poster-foot b {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 2.6cqw;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--bone);
+}
+
+/* Prize pool badge for the rules poster footer */
+.poster-prize-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3cqw;
+  padding: 0.6cqw 2cqw;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--ink-0);
+}
+.poster-prize-badge .poster-eyebrow {
+  font-size: 0.8cqw;
+}
+.poster-prize-badge b {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 3cqw;
+  letter-spacing: 0.02em;
+  color: var(--bone);
+}
+
+/* Phones: the banner stays 16:9 and scales down, so text gets small. */
+@media (max-width: 600px) {
+  .banner-bar h1 { font-size: 1.3rem; }
+  .banner-list { gap: 32px; padding: 20px 12px 56px; }
+}

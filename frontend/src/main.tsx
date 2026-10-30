@@ -1,6 +1,6 @@
 ﻿import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom'
 // Self-hosted fonts: work on venue Wi-Fi without internet access
 import '@fontsource/big-shoulders-display/latin-700'
 import '@fontsource/big-shoulders-display/latin-900'
@@ -19,18 +19,21 @@ import ParticipantView from './pages/ParticipantView'
 import HostConsole from './pages/HostConsole'
 import BigScreen from './pages/BigScreen'
 import Admin from './pages/Admin'
+import Banner from './pages/Banner'
 
+// The banner is static, so it is outside the socket provider and renders without the game server.
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <SocketProvider>
-      <BrowserRouter basename={import.meta.env.BASE_URL}>
-        <Routes>
+    <BrowserRouter basename={import.meta.env.BASE_URL}>
+      <Routes>
+        <Route path="/banner" element={<Banner />} />
+        <Route element={<SocketProvider><Outlet /></SocketProvider>}>
           <Route path="/" element={<ParticipantView />} />
           <Route path="/host" element={<HostConsole />} />
           <Route path="/screen" element={<BigScreen />} />
           <Route path="/admin" element={<Admin />} />
-        </Routes>
-      </BrowserRouter>
-    </SocketProvider>
+        </Route>
+      </Routes>
+    </BrowserRouter>
   </React.StrictMode>,
 )
