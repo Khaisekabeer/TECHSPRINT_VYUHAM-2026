@@ -585,6 +585,7 @@ class GameEngine {
     this.lastResult = {
       state: this.state,
       correctAnswer: q.correctAnswer,
+      note: q.note || null,
       stats,
       speedStar,
       // Everyone still in, in order (the projector adapts its layout to the count), with their
@@ -644,6 +645,8 @@ class GameEngine {
       serverNow: Date.now(),
       // The video of the next question, only while it is playing (the projector shows it).
       video: this.state === 'video' ? this.currentQuestion()?.video ?? null : null,
+      // The note explains the answer, so like the answer it is sent only at the reveal.
+      answerNote: this.state === 'leaderboard' ? this.lastResult?.note ?? null : null,
       // Never send the correct answer while a question is live.
       currentQuestion: q ? {
         id: q.id,

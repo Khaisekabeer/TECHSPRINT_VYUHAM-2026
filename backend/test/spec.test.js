@@ -190,6 +190,26 @@ describe('levels and rounds', () => {
     assert.equal(engine.levelInfo(3).round, 2);
   });
 
+  test('the answer note is sent only at the reveal, and a question without one sends nothing', () => {
+    engine.setQuestions([q(1, 1, { note: 'Because of HTTP.', video: { mime: 'video/mp4', url: 'https://x/v' } }), q(2, 1)]);
+    players(1);
+    const hidden = () => assert.ok(!JSON.stringify(engine.getState()).includes('Because of HTTP'));
+    hidden();
+    engine.startGame();
+    hidden();
+    engine.startQuestion(); // the video
+    hidden();
+    engine.startQuestion(); // the question
+    hidden();
+    assert.equal(engine.getState().answerNote, null);
+    engine.endQuestion();
+    assert.equal(engine.getState().answerNote, 'Because of HTTP.');
+    engine.startQuestion();
+    assert.equal(engine.getState().answerNote, null);
+    engine.endQuestion();
+    assert.equal(engine.getState().answerNote, null);
+  });
+
   test('media links are sent only while their question is live', () => {
     engine.setQuestions([q(1, 1, { image: { mime: 'image/png', data: 'AA==' }, video: { mime: 'video/mp4', url: 'https://x/v' } })]);
     players(1);
@@ -338,9 +358,9 @@ describe('scoring rules (coordinator options)', () => {
 describe('question vault', () => {
   test('question content round-trips, including the picture and video references', () => {
     const dek = vault.newDek();
-    const payload = vault.encryptQuestion(dek, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1' });
+    const payload = vault.encryptQuestion(dek, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1', note: 'Because.' });
     const back = vault.decryptQuestion(dek, payload);
-    assert.deepEqual(back, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1' });
+    assert.deepEqual(back, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1', note: 'Because.' });
   });
 
   test('a question saved without media decrypts with null references', () => {
@@ -348,6 +368,13 @@ describe('question vault', () => {
     const back = vault.decryptQuestion(dek, vault.encryptQuestion(dek, { text: 'T', options: ['A', 'B'], correctAnswer: 'A' }));
     assert.equal(back.imageId, null);
     assert.equal(back.videoId, null);
+    assert.equal(back.note, '');
+  });
+
+  test('a note stays out of the stored payload in readable form', () => {
+    const dek = vault.newDek();
+    const payload = vault.encryptQuestion(dek, { text: 'T', options: ['A', 'B'], correctAnswer: 'A', note: 'Secret explanation' });
+    assert.ok(!String(payload).includes('Secret explanation'));
   });
 
   test('a tampered question payload is rejected', () => {

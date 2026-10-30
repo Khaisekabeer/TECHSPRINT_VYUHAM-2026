@@ -519,6 +519,12 @@ export default function ParticipantView() {
             </Rise>
           )}
 
+          {gameState.answerNote && (
+            <Rise d={360} as="p" className="dim" style={{ margin: '16px 0 0', fontSize: '0.95rem', lineHeight: 1.45, overflowWrap: 'anywhere' }}>
+              {gameState.answerNote}
+            </Rise>
+          )}
+
           {roundEnd && !roundEnd.isFinal && <RoundEndNotice roundEnd={roundEnd} standing={standing} />}
 
           <Rise d={480} className="panel bracketed" style={{ marginTop: roundEnd && !roundEnd.isFinal ? 16 : 40, padding: '16px 28px', width: '100%' }}>

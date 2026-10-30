@@ -241,6 +241,46 @@ describe('sign-in and password reset', () => {
   });
 });
 
+describe('answer notes through the admin API', () => {
+  const stored = new Map();
+  const replaced = {};
+  const toRow = (id, q, payload) => ({ id, level: q.level, position: 0, type: q.type, time_limit: q.timeLimit, points: q.points, is_active: q.isActive, payload });
+  const stand = {
+    listLevels: async () => [{ number: 1 }],
+    createQuestion: async (bank, q, payload) => { const row = toRow(1, q, payload); stored.set(1, row); return row; },
+    updateQuestion: async (bank, id, q, payload) => { const row = toRow(id, q, payload); stored.set(id, row); return row; },
+    listQuestionRows: async () => [...stored.values()],
+  };
+  before(async () => {
+    Object.assign(replaced, Object.fromEntries(Object.keys(stand).map(k => [k, known[k]])));
+    Object.assign(known, stand);
+    await auth.unlockVault(await auth.getSession(tokens.quizmaster), vault.newDek(), uuid());
+  });
+  after(() => {
+    for (const [k, v] of Object.entries(replaced)) { if (v) known[k] = v; else delete known[k]; }
+  });
+  const body = extra => ({ level: 1, type: 'tf', text: 'Is it?', correctAnswer: 'True', timeLimit: 20, points: 1000, ...extra });
+  const list = async () => (await call('GET', '/questions', { token: tokens.quizmaster })).json();
+
+  test('a note survives saving, editing and reloading, and is encrypted at rest', async () => {
+    const saved = await call('POST', '/questions', { token: tokens.quizmaster, body: body({ note: '  Because of HTTP.  ' }) });
+    assert.equal(saved.status, 201);
+    assert.equal((await saved.json()).note, 'Because of HTTP.');
+    assert.equal((await list())[0].note, 'Because of HTTP.');
+    assert.ok(!JSON.stringify([...stored.values()]).includes('Because of HTTP'));
+    await call('PUT', '/questions/1', { token: tokens.quizmaster, body: body({ note: 'Changed.' }) });
+    assert.equal((await list())[0].note, 'Changed.');
+    await call('PUT', '/questions/1', { token: tokens.quizmaster, body: body({ note: '' }) });
+    assert.equal((await list())[0].note, '');
+  });
+
+  test('a note is cut to 300 characters and is optional', async () => {
+    const long = await call('POST', '/questions', { token: tokens.quizmaster, body: body({ note: 'x'.repeat(900) }) });
+    assert.equal((await long.json()).note.length, 300);
+    assert.equal((await call('POST', '/questions', { token: tokens.quizmaster, body: body() })).status, 201);
+  });
+});
+
 describe('video upload checks', () => {
   const bankId = uuid();
   before(async () => {

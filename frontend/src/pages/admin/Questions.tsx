@@ -5,6 +5,7 @@ import { OPTION_LABELS, Panel } from '../../components/ui';
 interface Question {
   id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
   options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
+  note?: string;           // optional, shown on phones after the answer is revealed
   imageId?: string | null; // picture for "identify this person / object" questions (stored encrypted)
   videoId?: string | null; // video shown while the question is live (stored in the private video bucket)
 }
@@ -26,7 +27,7 @@ const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
 ];
 
 const blank = (level: number): Draft => ({
-  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null, videoId: null,
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', note: '', timeLimit: 20, points: 1000, isActive: true, imageId: null, videoId: null,
 });
 
 interface SetSummary { id: string; name: string; ready: boolean; questions: number; active: number; levels: number }
@@ -464,6 +465,7 @@ Type the set name to confirm:`);
                   <span className="pill">{q.type === 'tf' ? 'True / False' : 'Multiple choice'}</span>
                   {q.imageId && <span className="pill">🖼 Picture</span>}
                   {q.videoId && <span className="pill">🎬 Video</span>}
+                  {q.note && <span className="pill">📝 Note</span>}
                   {!q.isActive && <span className="pill pill-warn">Hidden from game</span>}
                 </div>
               </div>
@@ -756,6 +758,12 @@ function Editor({ draft, levels, onSave, onCancel }: {
             ))}
           </div>
         </fieldset>
+
+        <div className="form-row" style={{ marginTop: 14 }}>
+          <label className="eyebrow" htmlFor="q-note">Answer note (optional)</label>
+          <textarea id="q-note" className="field" value={d.note ?? ''} onChange={e => setD({ ...d, note: e.target.value })} maxLength={300}
+            placeholder="Shown on phones after the answer is revealed, e.g. HTTP 404 means the page was not found." />
+        </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, fontSize: '0.9rem' }}>
           <input type="checkbox" checked={d.isActive} onChange={e => setD({ ...d, isActive: e.target.checked })} style={{ width: 18, height: 18 }} />
