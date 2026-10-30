@@ -11,7 +11,9 @@ type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
 // Levels (rounds) are set up by the quiz master and played in this order.
 interface Cut { rule: 'top' | 'percent' | 'min_score' | 'bottom' | 'min_correct'; value: number; ties: 'speed' | 'include' }
-interface Level { number: number; name: string; multiplier: number; cut: Cut | null }
+interface Level { number: number; name: string; multiplier: number; cut: Cut | null; isActive: boolean }
+// Round numbers count only the levels that are on, so switching one off closes the gap after it.
+const roundOf = (levels: Level[], level: Level) => levels.filter(l => l.isActive && l.number <= level.number).length;
 
 // Who goes on to the next level when this one ends. The coordinator confirms every cut.
 const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
@@ -325,7 +327,7 @@ function QuestionBank({ bank, vaultUntil, onLocked, onRenamed, onRecoveryCode }:
 
   const inLevel = questions.filter(q => q.level === level);
   const current = levels.find(l => l.number === level);
-  const round = levels.findIndex(l => l.number === level) + 1;
+  const round = current ? roundOf(levels, current) : 0;
   const addLevel = () => guard(async () => {
     const created = await api<Level>('/levels', { method: 'POST', body: { name: `Level ${levels.length + 1}`, multiplier: 1 } });
     await load();
@@ -389,9 +391,9 @@ Type the set name to confirm:`);
       <LoadIntoGame guard={guard} refreshKey={questions.length} bank={bank} />
 
       <nav className="tabs" aria-label="Levels">
-        {levels.map((l, i) => (
-          <button key={l.number} className={`tab${level === l.number ? ' active' : ''}`} onClick={() => { setLevel(l.number); setDraft(null); }}>
-            L{i + 1} · {l.name}<span className="count">{questions.filter(q => q.level === l.number).length}</span>
+        {levels.map(l => (
+          <button key={l.number} className={`tab${level === l.number ? ' active' : ''}`} style={{ opacity: l.isActive ? 1 : 0.55 }} onClick={() => { setLevel(l.number); setDraft(null); }}>
+            {l.isActive ? `L${roundOf(levels, l)}` : 'Off'} · {l.name}<span className="count">{questions.filter(q => q.level === l.number).length}</span>
           </button>
         ))}
         <button className="tab" onClick={addLevel} disabled={levels.length >= 20}>+ Add level</button>
@@ -507,12 +509,16 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
     if (!confirm(`Delete the level "${level.name}"?`)) return;
     guard(async () => { await api(`/levels/${level.number}`, { method: 'DELETE' }); onChanged(); });
   };
+  const setActive = (active: boolean) => guard(async () => {
+    await api(`/levels/${level.number}/active`, { method: 'PUT', body: { active } });
+    onChanged();
+  });
 
   return (
     <Panel>
       <form onSubmit={save} style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div className="form-row" style={{ flex: '1 1 220px' }}>
-          <label className="eyebrow" htmlFor="lvl-name">Level {round} name</label>
+          <label className="eyebrow" htmlFor="lvl-name">{level.isActive ? `Level ${round} name` : 'Level name (off)'}</label>
           <input id="lvl-name" className="field field-sm" value={name} maxLength={40} onChange={e => setName(e.target.value)} required />
         </div>
         <div className="form-row" style={{ flex: '0 1 140px' }}>
@@ -543,12 +549,14 @@ function LevelSettings({ level, round, questionCount, guard, onChanged }: {
             </div>
           </>
         )}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setActive(!level.isActive)}>{level.isActive ? 'Turn level off' : 'Turn level on'}</button>
         <button className="btn btn-ghost btn-sm" disabled={!dirty || !valid}>Save level</button>
         <button type="button" className="btn btn-danger btn-sm" onClick={remove} disabled={questionCount > 0}
           title={questionCount > 0 ? 'Move or delete its questions first' : undefined}>Delete level</button>
       </form>
       <p className="dim" style={{ fontSize: '0.8rem', margin: '10px 0 0' }}>
         Shown on the projector and phones when this round starts. Levels are played in the order of the tabs; empty levels are skipped.
+        A level that is turned off stays here with its questions but is not played, and the levels after it are renumbered.
         "After this level" decides who goes on when its last question ends; the coordinator reviews the list and confirms it in the host console. The last level has no cut.
       </p>
     </Panel>
@@ -645,7 +653,7 @@ function Editor({ draft, levels, onSave, onCancel }: {
           <div className="form-row">
             <label className="eyebrow" htmlFor="q-level">Level</label>
             <select id="q-level" className="field field-sm" value={d.level} onChange={e => setD({ ...d, level: Number(e.target.value) })}>
-              {levels.map((l, i) => <option key={l.number} value={l.number}>Level {i + 1} · {l.name}</option>)}
+              {levels.map(l => <option key={l.number} value={l.number}>{l.isActive ? `Level ${roundOf(levels, l)}` : 'Off'} · {l.name}</option>)}
             </select>
           </div>
           <div className="form-row">

@@ -684,6 +684,16 @@ module.exports = function createApi(hooks) {
     res.json({ success: true });
   }));
 
+  // Switch a level off or on. An off level stays in the set but is left out of the game, so the levels
+  // after it are numbered consecutively without it.
+  api.put('/levels/:level/active', small, ...qm, route(async (req, res) => {
+    const level = Number(req.params.level);
+    await checkLevelExists(req, level);
+    await store.setLevelActive(bankOf(req), level, req.body?.active !== false);
+    changed(req);
+    res.json({ success: true });
+  }));
+
   // ─── Loading a set into the live game ────────────────────────────────────────
   // The only path from a set to the live event. The coordinator (or an admin) picks the set and
   // enters its PIN in the host console; a quiz master can also load the set they have open.

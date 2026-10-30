@@ -350,7 +350,7 @@ function setLevelTimer(bankId, level, seconds) {
 }
 
 // ─── Levels of a set (rounds; played in number order) ────────────────────────
-const LEVEL_COLUMNS = 'number, name, multiplier, theme, cut_rule, cut_value, cut_ties';
+const LEVEL_COLUMNS = 'number, name, multiplier, theme, cut_rule, cut_value, cut_ties, is_active';
 // cut: who goes on to the next level ({ rule, value, ties }), or null for everyone.
 const toLevel = row => ({
   number: row.number,
@@ -358,6 +358,7 @@ const toLevel = row => ({
   multiplier: Number(row.multiplier),
   theme: row.theme ?? null,
   cut: row.cut_rule ? { rule: row.cut_rule, value: Number(row.cut_value), ties: row.cut_ties || 'speed' } : null,
+  isActive: row.is_active !== false,
 });
 
 async function listLevels(bankId) {
@@ -381,6 +382,10 @@ async function updateLevel(bankId, number, fields) {
 async function countQuestionsInLevel(bankId, number) {
   const { count } = await run(supabase.from('questions').select('id', { count: 'exact', head: true }).eq('bank_id', bankId).eq('level', number), 'Counting questions');
   return count;
+}
+
+function setLevelActive(bankId, number, active) {
+  return run(supabase.from('levels').update({ is_active: active }).eq('bank_id', bankId).eq('number', number), 'Switching level');
 }
 
 function deleteLevel(bankId, number) {
@@ -534,6 +539,7 @@ module.exports = {
   deleteQuestion,
   moveQuestion,
   setLevelTimer,
+  setLevelActive,
   insertImage,
   getImages,
   listImageMeta,

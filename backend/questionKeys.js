@@ -146,7 +146,8 @@ async function afterOpen(bankId, dek) {
 async function loadGameQuestions(bankId, dek) {
   const [rows, levels] = await Promise.all([store.listQuestionRows(bankId), store.listLevels(bankId)]);
   const byNumber = new Map(levels.map(l => [l.number, l]));
-  const questions = rows.filter(r => r.is_active).map(r => {
+  // Questions of a level that is switched off stay in the set but are not played.
+  const questions = rows.filter(r => r.is_active && byNumber.get(r.level)?.isActive !== false).map(r => {
     const level = byNumber.get(r.level);
     return {
       ...decryptRow(r, dek),
