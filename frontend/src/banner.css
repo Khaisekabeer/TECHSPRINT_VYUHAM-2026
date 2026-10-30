@@ -183,19 +183,9 @@
   align-items: center;
 }
 
-.poster-rings {
-  position: absolute;
-  top: 6cqw;
-  right: -8cqw;
-  width: 62cqw;
-  height: 62cqw;
-  color: var(--ring);
-  overflow: visible;
-}
-
 /* CENTER-ALIGNED title block for the event banner */
 .poster-event .poster-title-center {
-  top: 12cqw;
+  top: 8cqw;
   left: 0;
   right: 0;
   text-align: center;
@@ -216,7 +206,7 @@
   color: var(--bone);
 }
 .poster-event .poster-sub {
-  margin-top: 2cqw;
+  margin-top: 2.6cqw;
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 3.8cqw;
@@ -225,71 +215,14 @@
   text-transform: uppercase;
   color: var(--bone-dim);
 }
-
-/* ─── Running man animation ────────────────────────────────────────────────── */
-.runner-container {
-  position: absolute;
-  z-index: 2;
-  right: 6cqw;
-  top: 12cqw;
-  width: 26cqw;
-  height: 44cqw;
-  color: var(--bone);
-  pointer-events: none;
-  opacity: 0.18;
-}
-
-/* Individual runner frames — cycle through for animation */
-.runner-frame {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  animation: runner-cycle 0.6s steps(1) infinite;
-}
-
-.runner-f1 { animation-delay: 0s; }
-.runner-f2 { animation-delay: 0.15s; }
-.runner-f3 { animation-delay: 0.3s; }
-.runner-f4 { animation-delay: 0.45s; }
-
-@keyframes runner-cycle {
-  0%   { opacity: 1; }
-  25%  { opacity: 0; }
-  100% { opacity: 0; }
-}
-
-/* Speed motion lines behind the runner */
-.runner-speed-lines {
-  position: absolute;
-  top: 30%;
-  left: -15cqw;
-  width: 18cqw;
-  height: 40%;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-around;
-}
-.runner-speed-lines span {
+/* Short heat-red rule above the subtitle, the portal's accent colour */
+.poster-event .poster-sub::before {
+  content: '';
   display: block;
-  height: 0.15cqw;
-  background: linear-gradient(90deg, transparent, var(--bone));
-  border-radius: 1cqw;
-  animation: speed-line 0.8s ease-in-out infinite;
-  opacity: 0;
-}
-.runner-speed-lines span:nth-child(1) { width: 12cqw; animation-delay: 0s; }
-.runner-speed-lines span:nth-child(2) { width: 8cqw; animation-delay: 0.15s; }
-.runner-speed-lines span:nth-child(3) { width: 15cqw; animation-delay: 0.3s; }
-.runner-speed-lines span:nth-child(4) { width: 6cqw; animation-delay: 0.45s; }
-.runner-speed-lines span:nth-child(5) { width: 10cqw; animation-delay: 0.6s; }
-
-@keyframes speed-line {
-  0%   { opacity: 0; transform: translateX(5cqw); }
-  30%  { opacity: 0.4; }
-  60%  { opacity: 0.2; }
-  100% { opacity: 0; transform: translateX(-3cqw); }
+  width: 6cqw;
+  height: 0.3cqw;
+  margin: 0 auto 2.2cqw;
+  background: var(--heat);
 }
 
 /* ─── Event footer ─────────────────────────────────────────────────────────── */
