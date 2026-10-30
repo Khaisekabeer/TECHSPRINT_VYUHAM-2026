@@ -2,22 +2,30 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import '../banner.css';
 
-// Rules as the game enforces them (see README → Questions & scoring, Eliminations, Activity log).
+// The event guidelines. The scoring lines assume a 20-second timer, 1,000 points, the bonuses and
+// multipliers off and the round reset on, all set in the question bank and the host console.
 const RULES = [
-  { title: 'Check in and join', text: 'Check in at the entry with your pass. Join on your phone with the ticket ID on it. One phone per ticket.' },
-  { title: 'Levels, one by one', text: 'Levels run in order. Every question has its own timer and is multiple choice or true / false.' },
-  { title: 'One answer, on time', text: 'Tap once. Answers that arrive after the timer are not counted. A skipped question counts as its full timer.' },
-  { title: 'How points work', text: 'Faster correct answers score more, from full points down to half at the last second. Bonuses for the first correct answer and for streaks.' },
-  { title: 'The cut', text: 'After each level, players below the cut are out. The coordinator confirms every cut. The final level has no cut.' },
-  { title: 'Ties', text: 'Higher score ranks first. On a tie, the player with less total answer time ranks higher.' },
-  { title: 'Stay on the quiz screen', text: 'Leaving the quiz screen during a question is logged. Play alone: no second phone and no outside help.' },
-  { title: 'Decisions are final', text: "Breaking a rule can mean disqualification: the live answer is discarded and there is no final rank. The coordinator's decision is final." },
+  { title: 'Speed matters', text: 'Faster correct answers earn more points, so answer as quickly as possible.' },
+  { title: 'Scoring', text: 'Each question starts with a maximum of 1,000 points. 25 points are deducted for every second elapsed, making speed crucial.' },
+  { title: 'Time limit', text: 'Every question has a 20-second countdown. Answers must be submitted before the timer expires.' },
+  { title: 'Question display', text: 'Questions will appear on the big screen, while answers must be submitted through your phone.' },
+  { title: 'One answer only', text: 'You can select only one answer per question. Once an option is selected, it is final and cannot be changed.' },
+  { title: 'Automatic closure', text: 'Answer submissions will close automatically when the timer runs out. Unanswered questions receive zero points.' },
+  { title: 'Round reset', text: 'Every participant starts each round with zero points.' },
+  { title: 'Elimination', text: 'Only the top-performing participants advance to the next round. The remaining participants will be eliminated.' },
+  { title: 'Final round', text: 'There will be no elimination in the final round. The highest-scoring participant will be crowned the champion.' },
+  { title: 'Tie-breaker', text: 'If participants finish with equal points, the participant with the lower total answer time will secure the higher rank.' },
+  { title: 'Entry', text: 'Join using the Ticket ID printed on your pass. Only one phone is permitted per ticket.' },
+  { title: 'Stay on screen', text: 'Participants must remain on the quiz screen throughout each question. Leaving the screen will be logged.' },
+  { title: 'Fair play', text: 'All participants must play individually. The use of additional devices, outside assistance, or collaboration is strictly prohibited.' },
+  { title: 'Disqualification', text: 'Any violation of the quiz rules may result in disqualification.' },
+  { title: 'Final authority', text: "The coordinator's decision will be final and binding in all matters related to the quiz." },
 ];
 
-// Eight rule highlights at 3.5s each, plus time for the slide to arrive.
+// Fifteen guideline highlights at 3s each, plus time for the slide to arrive.
 const SLIDES = [
   { Poster: EventPoster, seconds: 12 },
-  { Poster: RulesPoster, seconds: 31 },
+  { Poster: RulesPoster, seconds: 49 },
 ];
 
 // The portal's <Brand />: logo, name, and the festival tag.
@@ -38,7 +46,6 @@ function EventPoster({ live = false }: { live?: boolean }) {
 
       <div className="poster-top">
         <Brand />
-        <span className="poster-chip">Use code VYUHAMQZ50</span>
       </div>
 
       <div className="poster-title poster-title-center">
@@ -64,8 +71,8 @@ function RulesPoster({ live = false }: { live?: boolean }) {
       <div className="poster-head">
         <div>
           <p className="poster-eyebrow">Tech Sprint · Vyuham '26</p>
-          <h2>Rules</h2>
-          <p className="poster-lead">Read before you play</p>
+          <h2>Guidelines</h2>
+          <p className="poster-lead">It's TechSprint. Speed matters. Every second counts!</p>
         </div>
         <Brand />
       </div>
@@ -143,7 +150,7 @@ export default function Banner() {
       <header className="banner-bar">
         <h1>TechSprint banners</h1>
         <nav>
-          <a href="?view=slideshow">Slideshow full screen</a> · <a href="?view=event">Event full screen</a> · <a href="?view=rules">Rules full screen</a>
+          <a href="?view=slideshow">Slideshow full screen</a> · <a href="?view=event">Event full screen</a> · <a href="?view=rules">Guidelines full screen</a>
         </nav>
       </header>
 
@@ -164,9 +171,9 @@ export default function Banner() {
           <EventPoster />
         </section>
 
-        <section aria-label="Rules banner">
+        <section aria-label="Guidelines banner">
           <p className="banner-cap">
-            <span>Rules banner · 16:9 · 1920 × 1080</span>
+            <span>Guidelines banner · 16:9 · 1920 × 1080</span>
             <a href="?view=rules">Open full screen</a>
           </p>
           <RulesPoster />

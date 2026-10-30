@@ -138,23 +138,6 @@
   color: var(--bone-dim);
 }
 
-/* Pill chip, as the portal's .chip */
-.poster-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6cqw;
-  padding: 0.7cqw 1.4cqw;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--ink-0);
-  box-shadow: var(--shadow-sm);
-  font-family: var(--font-mono);
-  font-size: 0.95cqw;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--bone);
-}
-
 /* Corner-bracket panel, as the portal's .panel.bracketed */
 .poster-panel {
   background: var(--ink-0);
@@ -267,7 +250,7 @@
 
 /* ─── Rules banner ─────────────────────────────────────────────────────────── */
 .poster-rules .poster-head {
-  top: 3.6cqw;
+  top: 2.6cqw;
   left: 4.2cqw;
   right: 4.2cqw;
   display: flex;
@@ -276,77 +259,77 @@
 }
 .poster-rules .poster-head .poster-eyebrow { margin-top: 0; }
 .poster-rules h2 {
-  margin-top: 1.2cqw;
+  margin-top: 0.8cqw;
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 8cqw;
+  font-size: 5.6cqw;
   line-height: 0.86;
   text-transform: uppercase;
   color: var(--bone);
 }
 .poster-rules .poster-lead {
-  margin-top: 0.9cqw;
+  margin-top: 0.6cqw;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 2.2cqw;
+  font-size: 1.7cqw;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--bone-dim);
 }
 
 .poster-rules .poster-list {
-  top: 18cqw;
+  top: 13.4cqw;
   left: 4.2cqw;
   right: 4.2cqw;
-  bottom: 11.4cqw;
+  bottom: 7.2cqw;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(5, 1fr);
   grid-auto-flow: column;
-  column-gap: 4.6cqw;
+  column-gap: 2.6cqw;
   list-style: none;
 }
 .poster-rules li {
   display: grid;
-  grid-template-columns: 3.4cqw 1fr;
-  column-gap: 1.6cqw;
+  grid-template-columns: 2.6cqw 1fr;
+  column-gap: 1.1cqw;
   align-content: start;
-  padding-top: 1cqw;
+  padding-top: 0.7cqw;
   border-top: 1px solid var(--line-strong);
 }
 .poster-rules .rule-no {
   display: grid;
   place-items: center;
-  width: 3.4cqw;
-  height: 3.4cqw;
+  width: 2.6cqw;
+  height: 2.6cqw;
   background: var(--heat);
   color: var(--ink-0);
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 1.8cqw;
+  font-size: 1.4cqw;
   line-height: 1;
 }
 .poster-rules h3 {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 2.1cqw;
+  font-size: 1.6cqw;
   line-height: 1;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--bone);
 }
 .poster-rules .rule-text {
-  margin-top: 0.5cqw;
-  font-size: 1.05cqw;
-  line-height: 1.45;
+  margin-top: 0.3cqw;
+  font-size: 0.98cqw;
+  line-height: 1.38;
   color: var(--bone-dim);
 }
 
 .poster-rules .poster-foot {
   left: 4.2cqw;
   right: 4.2cqw;
-  bottom: 2.4cqw;
-  padding-top: 1.6cqw;
+  bottom: 1.5cqw;
+  padding-top: 0.9cqw;
   border-top: 1px solid var(--bone);
   display: flex;
   justify-content: space-between;
@@ -366,10 +349,9 @@
 /* Prize pool badge for the rules poster footer */
 .poster-prize-badge {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 0.3cqw;
-  padding: 0.6cqw 2cqw;
+  gap: 1cqw;
+  padding: 0.3cqw 1.4cqw;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
   background: var(--ink-0);
@@ -380,7 +362,7 @@
 .poster-prize-badge b {
   font-family: var(--font-display);
   font-weight: 900;
-  font-size: 3cqw;
+  font-size: 2.1cqw;
   letter-spacing: 0.02em;
   color: var(--bone);
 }
@@ -470,7 +452,6 @@
 
 .live.poster-event .poster-brand { animation: from-left 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .live.poster-event .poster-brand img { animation: logo-beat 3s ease-in-out 1.2s infinite; }
-.live.poster-event .poster-chip { animation: from-right 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both, chip-ring 3s ease-out 1.2s infinite; }
 .live.poster-event .poster-eyebrow { animation: rise 0.5s ease-out 0.25s both; }
 .live.poster-event h2 span:first-child { animation: from-left 0.65s cubic-bezier(0.16, 1, 0.3, 1) 0.3s both; }
 .live.poster-event h2 span:last-child {
@@ -481,10 +462,6 @@
 .live.poster-event .poster-sub::before { animation: rule-sweep 3s ease-in-out 1.4s infinite; }
 .live.poster-event .poster-foot { animation: draw-across 0.8s cubic-bezier(0.6, 0, 0.2, 1) 1s both; }
 @keyframes logo-beat { 0%, 30%, 100% { transform: scale(1); } 15% { transform: scale(1.1); } }
-@keyframes chip-ring {
-  0% { box-shadow: 0 0 0 0 rgba(217, 32, 43, 0.4); }
-  60%, 100% { box-shadow: 0 0 0 0.8cqw rgba(217, 32, 43, 0); }
-}
 @keyframes sprint-lunge {
   0%, 12%, 100% { transform: none; }
   5% { transform: translateX(0.7cqw) skewX(-3deg); }
@@ -495,7 +472,7 @@
 }
 
 /* ─ Slide 2: rules. Each rule takes its turn, so people read them in order. ─ */
-.poster-rules { --beat: 3.5s; --first: 1.8s; }
+.poster-rules { --beat: 3s; --first: 2.4s; }
 .live.poster-rules .poster-eyebrow,
 .live.poster-rules .poster-lead { animation: rise 0.5s ease-out 0.25s both; }
 .live.poster-rules h2 { animation: from-left 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
