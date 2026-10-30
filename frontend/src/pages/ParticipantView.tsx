@@ -396,7 +396,8 @@ export default function ParticipantView() {
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 18, paddingBottom: 18 }}>
           <p className="eyebrow" style={{ margin: '0 0 14px', textAlign: 'center' }}>Read the question on the big screen</p>
           {q?.imageUrl && <QuestionPicture path={q.imageUrl} maxHeight="30vh" style={{ marginBottom: 14 }} />}
-          {q?.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="30vh" style={{ marginBottom: 14 }} />}
+          {/* Muted: the sound comes from the projector, not from every phone in the room. */}
+          {q?.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="30vh" muted style={{ marginBottom: 14 }} />}
 
           <div style={{ flex: 1, maxHeight: 560, display: 'grid', gridAutoRows: 'minmax(68px, 1fr)', gap: 10 }}>
             {q?.options?.map((opt: string, idx: number) => {
@@ -513,7 +514,7 @@ export default function ParticipantView() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <Avatar id={playerInfo.avatar} size={34} />
-                <span className="eyebrow">Your total</span>
+                <span className="eyebrow">{gameState.rules?.roundReset ? 'Round points' : 'Your total'}</span>
               </span>
               <span className="display tabular" style={{ fontSize: '2.2rem' }}>{playerInfo.score ?? 0}</span>
             </div>

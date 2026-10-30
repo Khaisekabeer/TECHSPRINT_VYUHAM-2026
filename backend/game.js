@@ -11,6 +11,7 @@ const gameEngine = require('./gameEngine');
 
 const { ANSWER_GRACE_MS } = gameEngine;
 const SETTINGS_REFRESH_MS = 15 * 1000;
+const HOST_ROLES = ['coordinator', 'admin'];
 
 /**
  * @param io        Socket.IO server
@@ -262,6 +263,11 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     start_question(callback) {
       const result = gameEngine.startQuestion();
       if (result.error) return callback(result);
+      // Round reset: phones and screens must show everyone back at 0 as the new round opens.
+      if (gameEngine.state === 'intro' && gameEngine.rules.roundReset) {
+        updateAllPlayers();
+        broadcastPlayers();
+      }
       if (gameEngine.state === 'question') {
         scheduleQuestionEnd();
         const info = gameEngine.levelInfo(gameEngine.currentLevel);
@@ -357,11 +363,12 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       if (role === 'host' || role === 'monitor') {
         const session = await auth.getSession(token);
         if (!session) return callback({ error: 'Session expired - please sign in again' });
-        if (role === 'host' && !['coordinator', 'admin'].includes(session.staff.role)) {
+        if (role === 'host' && !HOST_ROLES.includes(session.staff.role)) {
           return callback({ error: 'Only a coordinator or admin can conduct the live event' });
         }
         socket.data.isHost = role === 'host';
         socket.data.staff = session.staff;
+        socket.data.token = token;
         socket.emit('questions_loaded', questionsLoaded || { count: 0 });
         socket.emit('cut_pending', gameEngine.pendingCutView());
       } else if (role !== 'bigscreen') {
@@ -378,7 +385,18 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
 
     handle(socket, 'host_action', async (callback, action, data) => {
       if (!socket.data.isHost) return callback({ error: 'Not authorised' });
-      const run = hostActions[action];
+      // A deactivated or demoted account loses control at once, not at its next reconnect. If the
+      // database can't be reached the host keeps control: an outage must not stop a live event.
+      try {
+        const session = await auth.getSession(socket.data.token);
+        if (!session || !HOST_ROLES.includes(session.staff.role)) {
+          socket.data.isHost = false;
+          return callback({ error: 'Session expired - please sign in again' });
+        }
+      } catch (err) {
+        console.error('[socket] host session check failed:', err.message);
+      }
+      const run = Object.hasOwn(hostActions, action) ? hostActions[action] : null;
       if (!run) return callback({ error: 'Unknown action' });
       console.log(`Host action: ${action} (${socket.data.staff?.displayName})`);
       await run(callback, data, socket.data.staff);
@@ -392,6 +410,9 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
         return callback({ error, ...extra });
       };
 
+      // One connection, one seat.
+      if (gameEngine.playerBySocket(socket.id)) return callback({ error: 'Already joined' });
+
       if (!settings.requireCheckin) {
         if (gameEngine.state !== 'lobby') return callback({ error: 'Game already started' });
         const result = gameEngine.addPlayer(socket.id, data?.name, data?.team, null, data?.avatar);
@@ -404,7 +425,8 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
 
       const ticketId = store.normalizeTicketId(data?.ticketId);
       if (!ticketId) return callback({ error: 'Enter the ticket ID printed on your pass' });
-      if (tooManyJoinFailures(socket)) return fail('Too many attempts — wait a few minutes, or ask the quiz desk', ticketId);
+      // Not logged: a throttled client must not be able to flood the activity log.
+      if (tooManyJoinFailures(socket)) return callback({ error: 'Too many attempts — wait a few minutes, or ask the quiz desk' });
 
       // Same ticket on a new phone: the seat moves only if the old device dropped off AND the
       // player proves the ticket is theirs (the pass alone is visible to anyone nearby).

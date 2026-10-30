@@ -111,16 +111,13 @@ module.exports = function createApi(hooks) {
 
     const emailOrUsername = str(req.body?.email || req.body?.username, 160).toLowerCase();
     check(emailOrUsername, 'Enter your registered email address or username');
+    auth.recordFailure(ipKey, 5, 15 * 60 * 1000);
 
+    // The same answer whether or not the account exists, so this can't be used to find staff accounts.
+    const sent = { success: true, message: 'If that account has an email address, a verification code has been sent. Otherwise ask an administrator.' };
     const staff = await store.findStaffForLogin(emailOrUsername);
-    if (!staff || !staff.active) {
-      return res.json({ success: true, message: 'If an active account exists with that email, a verification code has been sent.' });
-    }
-
-    const targetEmail = staff.username.includes('@') ? staff.username : null;
-    if (!targetEmail) {
-      return res.status(400).json({ error: 'This account does not have an email address associated with it. Contact an administrator to reset your password.' });
-    }
+    const targetEmail = staff?.active && staff.username.includes('@') ? staff.username : null;
+    if (!targetEmail) return res.json(sent);
 
     const otp = String(crypto.randomInt(100000, 1000000));
     const otpHash = crypto.createHash('sha256').update(otp).digest('hex');
@@ -135,8 +132,7 @@ module.exports = function createApi(hooks) {
 
     try {
       await mail.sendPasswordResetOtp(targetEmail, otp, staff.display_name);
-      auth.recordFailure(ipKey, 5, 15 * 60 * 1000);
-      res.json({ success: true, staffId: staff.id, email: targetEmail, message: 'Verification code sent to your email.' });
+      res.json(sent);
     } catch (err) {
       console.error('[forgot-password]', err.message);
       res.status(500).json({ error: 'Could not send verification email right now. Please try again later or contact admin.' });
@@ -152,15 +148,18 @@ module.exports = function createApi(hooks) {
     check(otp.length === 6, 'Verification code must be 6 digits');
     check(newPassword.length >= 8, 'New password must be at least 8 characters');
 
+    const ipKey = `reset:${req.ip}`;
+    if (auth.isLockedOut(ipKey)) return res.status(429).json({ error: 'Too many attempts. Wait a few minutes.' });
+    const invalid = () => {
+      auth.recordFailure(ipKey, 10, 15 * 60 * 1000);
+      return res.status(400).json({ error: 'Invalid or expired verification code' });
+    };
+
     const staff = await store.findStaffForLogin(emailOrUsername);
-    if (!staff || !staff.active) {
-      return res.status(400).json({ error: 'Invalid reset request' });
-    }
+    if (!staff || !staff.active) return invalid();
 
     const record = await store.getSetting(`otp:${staff.id}`);
-    if (!record || !record.expiresAt || Date.now() > record.expiresAt) {
-      return res.status(400).json({ error: 'Verification code has expired. Please request a new code.' });
-    }
+    if (!record || !record.expiresAt || Date.now() > record.expiresAt) return invalid();
 
     if (record.attempts >= 5) {
       await store.deleteSetting(`otp:${staff.id}`);
@@ -171,7 +170,7 @@ module.exports = function createApi(hooks) {
     if (givenHash !== record.otpHash) {
       record.attempts = (record.attempts || 0) + 1;
       await store.setSetting(`otp:${staff.id}`, record);
-      return res.status(400).json({ error: 'Invalid verification code' });
+      return invalid();
     }
 
     await store.updateStaff(staff.id, { password_hash: await auth.hashSecret(newPassword) });
@@ -559,6 +558,8 @@ module.exports = function createApi(hooks) {
   api.delete('/banks/current', small, ...qm, route(async (req, res) => {
     const bank = await store.getBank(bankOf(req));
     check(bank && req.body?.confirmName === bank.name, 'Type the set name to confirm');
+    // Video files live in storage, outside the database cascade.
+    await store.deleteVideos(bank.id, (await store.listVideoMeta(bank.id)).map(v => v.id));
     await store.deleteBank(bank.id); // its levels, questions and pictures go with it
     await auth.lockVault(req.session.tokenHash);
     res.json({ success: true });

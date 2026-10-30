@@ -30,7 +30,7 @@ app.get('/health', (req, res) => res.json({ ok: true, state: game.status().state
 
 // ─── Internal endpoints, called only by the admin API (shared secret) ──────────
 const internal = express.Router();
-internal.use(express.json({ limit: '60mb' })); // questions with their images
+// The secret is checked first: nothing unauthenticated gets a 60 MB body parsed.
 internal.use((req, res, next) => {
   let expected;
   try { expected = linkSecret(); } catch { return res.status(503).json({ error: 'GAME_LINK_SECRET is not set on the game server' }); }
@@ -39,6 +39,7 @@ internal.use((req, res, next) => {
   if (!ok) return res.status(401).json({ error: 'Not authorised' });
   next();
 });
+internal.use(express.json({ limit: '60mb' })); // questions with their images
 
 internal.get('/status', (req, res) => res.json(game.status()));
 

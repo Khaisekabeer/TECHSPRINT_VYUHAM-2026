@@ -281,7 +281,7 @@ cd backend
 npm test
 ```
 
-Spec tests for the game rules (scoring, answer timing, cuts, rounds, media links), a full two-level game, question encryption and staff passwords. They need no database or network.
+Spec tests for the game rules (scoring, answer timing, cuts, rounds, media links), a full two-level game, question encryption and staff passwords. They need no database or network. Integration tests run the real API and game server on localhost with real Socket.IO clients: access control on every API route, host control, secrecy of questions and answers, seat handling, hostile input, full games and 150 phones answering at once.
 
 ## Load test
 

@@ -142,7 +142,7 @@ export default function BigScreen() {
         )}
 
         {phase === 'lobby' && gameState && <Lobby joinAddress={joinAddress} players={players} />}
-        {phase === 'intro' && <Intro level={level} config={gameState.levelConfig} />}
+        {phase === 'intro' && <Intro level={level} config={gameState.levelConfig} rules={gameState.rules} />}
         {phase === 'question' && (
           <Question gameState={gameState} timeLeft={timeLeft} maxTime={maxTime} answerCount={answerCount} level={level} />
         )}
@@ -220,7 +220,7 @@ function Lobby({ joinAddress, players }: { joinAddress: string; players: any[] }
 }
 
 // ─── Level intro ──────────────────────────────────────────────────────────────
-function Intro({ level, config }: { level: number; config: any }) {
+function Intro({ level, config, rules }: { level: number; config: any; rules: any }) {
   return (
     <Centered>
       <Rings size="95vh" style={centerRings} />
@@ -230,7 +230,8 @@ function Intro({ level, config }: { level: number; config: any }) {
       </div>
       <Rise d={300} as="h2" className="display" style={{ fontSize: 'clamp(3rem, 7vw, 7rem)' }}>{config?.name}</Rise>
       <Rise d={450} style={{ marginTop: '3vh' }}>
-        <span className="chip chip-heat" style={{ fontSize: '0.9rem', padding: '10px 18px' }}>× {config?.multiplier} points per answer</span>
+        {rules?.multiplier !== false && <span className="chip chip-heat" style={{ fontSize: '0.9rem', padding: '10px 18px' }}>× {config?.multiplier} points per answer</span>}
+        {rules?.roundReset && <span className="chip" style={{ fontSize: '0.9rem', padding: '10px 18px', marginLeft: 10 }}>Everyone starts this round at 0</span>}
       </Rise>
     </Centered>
   );
@@ -243,7 +244,7 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
   const q = gameState.currentQuestion;
   const pct = answerCount.total ? (answerCount.answered / answerCount.total) * 100 : 0;
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '3.5vh 4vw 4vh', minWidth: 0 }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '3.5vh 4vw 4vh', minWidth: 0, minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '2.5vw' }}>
         <div>
           <div className="eyebrow" style={{ fontSize: '0.8rem' }}>Question</div>
@@ -265,15 +266,20 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
         <TimerRing value={timeLeft} max={maxTime} size={128} stroke={6} />
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3vh', padding: '3vh 2vw' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2vh', padding: '2vh 2vw' }}>
         <h2 key={q?.id} className="rise" style={{
           margin: 0, maxWidth: 1400, textAlign: 'center', fontWeight: 600,
           fontSize: 'clamp(2rem, 3.6vw, 4.4rem)', lineHeight: 1.18, letterSpacing: '-0.02em', textWrap: 'balance',
         }}>
           {q?.text}
         </h2>
-        {q?.imageUrl && <QuestionPicture path={q.imageUrl} maxHeight="38vh" />}
-        {q?.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="44vh" style={{ width: 'auto', maxWidth: '100%' }} />}
+        {/* Pictures and videos take the space that is left, so the options always stay on screen. */}
+        {(q?.imageUrl || q?.videoUrl) && (
+          <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', justifyContent: 'center', gap: '2vw' }}>
+            {q.imageUrl && <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ height: '100%', margin: 0 }} />}
+            {q.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="100%" style={{ width: 'auto', height: '100%', maxWidth: '100%', margin: 0 }} />}
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.6vh 1.4vw' }}>
