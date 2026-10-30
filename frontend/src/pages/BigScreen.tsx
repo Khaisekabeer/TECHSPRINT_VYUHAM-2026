@@ -355,9 +355,6 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
           {result?.speedStar && (
             <Rise d={800}><span className="chip chip-gold" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>⚡ Fastest correct · {result.speedStar}</span></Rise>
           )}
-          {!cut && !hideStandings && result?.cutLabel && (
-            <Rise d={850}><span className="chip" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>✂ {result.cutLabel}</span></Rise>
-          )}
         </div>
 
         {/* End of a round: the cut is being decided, who went out, or everyone goes through. */}

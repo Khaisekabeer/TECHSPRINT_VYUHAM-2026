@@ -19,7 +19,7 @@ const DEFAULT_RULES = {
 
 // What other clients may see about a player (never the rejoin token or ticket).
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, avatar: p.avatar, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status };
+  return { id: p.id, name: p.name, avatar: p.avatar, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status, time: p.totalResponseTime };
 }
 
 // Standings: higher score first; on a tie, less total answer time (a skipped question counts as

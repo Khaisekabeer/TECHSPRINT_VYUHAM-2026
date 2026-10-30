@@ -10,7 +10,10 @@ export interface StandingPlayer {
   connected?: boolean;
   prevRank?: number | null;  // rank before this question (for the animation)
   prevScore?: number | null; // score before this question
+  time?: number;             // total answer time in ms (the tie-break)
 }
+
+const seconds = (ms?: number) => (ms == null ? null : <span className="st-time">{(ms / 1000).toFixed(1)}s</span>);
 
 const SETTLE_MS = 1400; // how long the old order stays on screen before moving
 const MOVE_MS = 900;
@@ -105,13 +108,14 @@ export function Standings({ players, atRisk, style }: { players: StandingPlayer[
               // Narrow tiles: score under the name so the name gets the full width.
               <span className="st-stack">
                 <span className="st-name">{p.name}</span>
-                <span className="st-score">{score}{delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}</span>
+                <span className="st-score">{score} {seconds(p.time)}{delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}</span>
               </span>
             ) : (
               <>
                 <span className="st-name">{p.name}</span>
                 {delta !== 0 && <span className={`st-delta ${delta > 0 ? 'up' : 'down'}`} aria-label={`${delta > 0 ? 'up' : 'down'} ${Math.abs(delta)}`}>{delta > 0 ? '▲' : '▼'}{Math.abs(delta)}</span>}
                 {(p.streak ?? 0) >= 3 && <span aria-label={`${p.streak} correct in a row`}>🔥</span>}
+                {seconds(p.time)}
                 <span className="st-score">{score}</span>
               </>
             )}

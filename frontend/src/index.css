@@ -653,6 +653,9 @@ textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
 .st-rank { font-family: var(--font-display); font-weight: 900; text-align: center; flex-shrink: 0; line-height: 1; }
 .st-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .st-score { font-family: var(--font-display); font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.st-time { flex-shrink: 0; font-family: var(--font-mono); font-size: 0.72em; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--bone-dim); }
+.standings .st-row .st-time { font-size: clamp(0.65rem, 0.95vw, 1.1rem); }
+.st-row.first .st-time { color: inherit; opacity: 0.8; }
 .st-row.first { background: var(--heat); color: var(--ink-0); border-color: transparent; box-shadow: var(--shadow-lg); }
 .st-row.first .avatar { border-color: rgba(255, 255, 255, 0.5); }
 .st-row.podium { background: linear-gradient(135deg, var(--ink-0), var(--ink-2)); }

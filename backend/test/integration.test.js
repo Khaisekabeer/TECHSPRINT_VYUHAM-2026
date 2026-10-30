@@ -616,6 +616,23 @@ describe('full games', () => {
     assert.equal(engine.players[engine.sockets[a.id]].score, round1);
   });
 
+  test('the leaderboard carries each player\'s total answer time; a skip counts as the full timer', async () => {
+    engine.setQuestions([q(1, 1), q(2, 1)]);
+    const h = await host();
+    const a = await player('Asha');
+    await player('Ben');
+    const screen = await client();
+    await ask(screen, 'join_role', 'bigscreen');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await act(h, 'end_question');
+    await until(() => last(screen, 'question_result'), 'reveal');
+    const board = last(screen, 'question_result').leaderboard;
+    assert.ok(board.find(p => p.name === 'Asha').time < 3000);
+    assert.equal(board.find(p => p.name === 'Ben').time, 20000);
+  });
+
   test('a dropped player is scored as skipped and the game carries on', async () => {
     engine.setQuestions([q(1, 1), q(2, 1)]);
     const h = await host();
