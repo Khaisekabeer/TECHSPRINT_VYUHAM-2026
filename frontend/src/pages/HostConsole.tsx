@@ -13,6 +13,15 @@ const PHASE_LABEL: Record<string, string> = {
   podium: 'Podium',
 };
 
+// Scoring options the coordinator sets in the lobby (see gameEngine DEFAULT_RULES). All ticked except
+// round reset = the original rules.
+const SCORING_RULES = [
+  { key: 'multiplier', label: 'Level multipliers', hint: "Each level's points ×. Off: every level counts ×1." },
+  { key: 'firstBlood', label: 'First-to-answer bonus', hint: '+20% for the first correct answer on each question.' },
+  { key: 'streak', label: 'Streak bonus', hint: '+10% for each correct answer once a player has 3 in a row.' },
+  { key: 'roundReset', label: 'Reset points every round', hint: 'Everyone still in starts each round at 0; the cut uses that round\'s points.' },
+];
+
 export default function HostConsole() {
   const { socket, isConnected } = useSocket();
   const current = useStaffSession();
@@ -106,6 +115,8 @@ export default function HostConsole() {
   };
   const toggleFinalStandings = (hide: boolean) => hostAction('set_hide_final_standings', { hide },
     () => showToast(hide ? 'Standings hidden in the final round' : 'Standings shown in the final round'));
+  const setRule = (key: string, on: boolean) => hostAction('set_scoring_rules', { rules: { [key]: on } },
+    () => showToast('Scoring rules updated'));
   const resetGame = () => {
     if (confirm('Reset the entire game? All players and scores will be cleared.')) {
       hostAction('reset_game', null, () => showToast('Game reset'));
@@ -306,6 +317,27 @@ export default function HostConsole() {
                 </span>
               </span>
             </label>
+            {gameState?.rules && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <div className="eyebrow" style={{ marginBottom: 10 }}>
+                  Scoring rules{phase !== 'lobby' && <span className="dim"> · fixed for this game</span>}
+                </div>
+                {SCORING_RULES.map(r => (
+                  <label key={r.key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 8, fontSize: '0.88rem', cursor: phase === 'lobby' ? 'pointer' : 'default' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!gameState.rules[r.key]}
+                      disabled={phase !== 'lobby'}
+                      onChange={e => setRule(r.key, e.target.checked)}
+                    />
+                    <span>
+                      {r.label}
+                      <span className="dim" style={{ display: 'block', fontSize: '0.78rem' }}>{r.hint}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </Panel>
 
           {/* End-of-level cut: review, adjust, confirm */}

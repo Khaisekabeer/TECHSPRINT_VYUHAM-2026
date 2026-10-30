@@ -43,10 +43,18 @@ function toParticipantRow(gameId, p) {
 }
 
 // The game row is created when the host starts the game, so lobbies that never start leave no trace.
-function markGameStarted(gameId, players) {
-  enqueue('markGameStarted', () => supabase
-    .from('games')
-    .upsert({ id: gameId, name: "TechSprint · Vyuham '26", status: 'running', started_at: new Date().toISOString() }));
+function markGameStarted(gameId, players, rules) {
+  const row = { id: gameId, name: "TechSprint · Vyuham '26", status: 'running', started_at: new Date().toISOString() };
+  enqueue('markGameStarted', async () => {
+    const res = await supabase.from('games').upsert({ ...row, rules });
+    // Before the games.rules migration has run, save the game without its rules: every result
+    // row depends on this one, so it must never be lost.
+    if (res.error && /rules/.test(res.error.message)) {
+      console.warn('[db] games.rules column missing — run supabase/migrations/20261024090000_game_scoring_rules.sql');
+      return supabase.from('games').upsert(row);
+    }
+    return res;
+  });
   return saveParticipants(gameId, players);
 }
 

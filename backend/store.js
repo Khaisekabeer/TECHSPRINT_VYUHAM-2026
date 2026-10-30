@@ -423,16 +423,24 @@ async function storageRun(request, label) {
   return data;
 }
 
-async function insertVideo(row, bytes) {
-  const path = `${row.bank_id}/${require('crypto').randomUUID()}`;
-  await storageRun(supabase.storage.from(VIDEO_BUCKET).upload(path, bytes, { contentType: row.mime }), 'Uploading video');
-  try {
-    const rows = await run(supabase.from('question_videos').insert({ ...row, path }).select('id, mime, bytes'), 'Saving video');
-    return rows[0];
-  } catch (err) {
-    await supabase.storage.from(VIDEO_BUCKET).remove([path]);
-    throw err;
-  }
+// The browser uploads straight to the bucket with this one-time link: Vercel functions reject
+// request bodies over about 4.5 MB. The bucket itself enforces the size limit and file types.
+async function createVideoUpload(bankId) {
+  const path = `${bankId}/${require('crypto').randomUUID()}`;
+  const { signedUrl } = await storageRun(supabase.storage.from(VIDEO_BUCKET).createSignedUploadUrl(path), 'Preparing video upload');
+  return { path, url: signedUrl };
+}
+
+// Records an uploaded file. Its real size and type come from storage, not from the browser.
+async function insertVideo(row) {
+  const folder = row.path.slice(0, row.path.indexOf('/'));
+  const name = row.path.slice(folder.length + 1);
+  const [file] = await storageRun(supabase.storage.from(VIDEO_BUCKET).list(folder, { search: name, limit: 1 }), 'Checking video upload');
+  if (!file || file.name !== name) return null;
+  const rows = await run(supabase.from('question_videos').insert({
+    ...row, mime: file.metadata?.mimetype, bytes: file.metadata?.size,
+  }).select('id, mime, bytes'), 'Saving video');
+  return rows[0];
 }
 
 function getVideos(ids, bankId) {
@@ -588,6 +596,7 @@ module.exports = {
   getImages,
   listImageMeta,
   deleteImages,
+  createVideoUpload,
   insertVideo,
   getVideos,
   listVideoMeta,

@@ -584,13 +584,21 @@ module.exports = function createApi(hooks) {
     res.send(vault.decryptImage(dekOf(req), image.payload));
   }));
 
-  // Upload a question video: the raw file as the request body (up to 50 MB), kept in the private video bucket.
-  const videoBody = express.raw({ type: VIDEO_TYPES, limit: MAX_VIDEO_BYTES });
-  api.post('/questions/videos', videoBody, ...qm, route(async (req, res) => {
-    const mime = String(req.headers['content-type'] || '').split(';')[0];
-    check(VIDEO_TYPES.includes(mime), 'Use an MP4 or WebM video');
-    check(Buffer.isBuffer(req.body) && req.body.length > 0, 'Choose a video file');
-    const video = await store.insertVideo({ bank_id: bankOf(req), mime, bytes: req.body.length, created_by: req.session.staff.id }, req.body);
+  // Upload a question video (up to 50 MB) in two steps: get a one-time link, the browser sends the file
+  // straight to the private bucket, then the upload is recorded. The bucket enforces size and type.
+  api.post('/questions/videos/upload', small, ...qm, route(async (req, res) => {
+    check(VIDEO_TYPES.includes(req.body?.mime), 'Use an MP4 or WebM video');
+    check(Number(req.body?.bytes) > 0 && Number(req.body.bytes) <= MAX_VIDEO_BYTES, 'Video must be under 50 MB');
+    res.status(201).json(await store.createVideoUpload(bankOf(req)));
+  }));
+
+  api.post('/questions/videos', small, ...qm, route(async (req, res) => {
+    const bankId = bankOf(req);
+    const path = String(req.body?.path || '');
+    // Only a file in this set's own folder can be attached to it.
+    check(path.startsWith(`${bankId}/`) && UUID_RE.test(path.slice(bankId.length + 1)), 'Invalid video');
+    const video = await store.insertVideo({ bank_id: bankId, path, created_by: req.session.staff.id });
+    check(video, 'The video did not finish uploading — try again');
     res.status(201).json({ id: video.id });
   }));
 

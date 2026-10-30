@@ -38,6 +38,7 @@ const goLive = (elapsedMs = 0) => {
 
 beforeEach(() => {
   engine.reset();
+  engine.rules = { ...engine.DEFAULT_RULES };
 });
 
 describe('scoring', () => {
@@ -233,6 +234,99 @@ describe('full game', () => {
     assert.ok(cutConfirmed, 'the cut after level 1 must be confirmed');
     const alive = engine.activePlayers().length;
     assert.ok(alive > 0 && alive < 5, `cut should keep some and remove some (alive ${alive})`);
+  });
+});
+
+describe('scoring rules (coordinator options)', () => {
+  // Two levels: a round 1 question, then a round 2 question; no cuts, so the round change is simple.
+  const twoRounds = () => engine.setQuestions([q(1, 1), q(2, 2, { multiplier: 2 })]);
+  const answerAll = (ans) => engine.submitAnswer('s1', ans);
+
+  test('the defaults are the original rules', () => {
+    assert.deepEqual(engine.rules, { multiplier: true, firstBlood: true, streak: true, roundReset: false });
+  });
+
+  test('rules can only be changed in the lobby, and unknown keys are ignored', () => {
+    twoRounds();
+    players(1);
+    const r = engine.setRules({ multiplier: false, bogus: true, streak: 'yes' });
+    assert.equal(r.success, true);
+    assert.deepEqual(r.rules, { multiplier: false, firstBlood: true, streak: true, roundReset: false });
+    engine.startGame();
+    assert.match(engine.setRules({ streak: false }).error, /before the game starts/);
+  });
+
+  test('multiplier off: a ×2 level scores like a ×1 level', () => {
+    engine.setRules({ multiplier: false, firstBlood: false });
+    twoRounds();
+    players(1);
+    engine.startGame();
+    engine.startQuestion(); engine.questionStartTime = Date.now(); engine.questionEndsAt = Date.now() + 20000;
+    engine.endQuestion();
+    engine.startQuestion(); // round 2 intro
+    engine.startQuestion(); // round 2 question
+    engine.questionStartTime = Date.now(); engine.questionEndsAt = Date.now() + 20000;
+    const r = answerAll('A');
+    assert.ok(Math.abs(r.record.pointsEarned - 1000) <= 5, `expected about 1000, got ${r.record.pointsEarned}`);
+    assert.equal(engine.getState().levelConfig.multiplier, 1);
+  });
+
+  test('first-to-answer bonus off: the first correct answer gets no extra 20%', () => {
+    engine.setRules({ firstBlood: false });
+    engine.setQuestions([q(1, 1)]);
+    players(1);
+    goLive(10000);
+    const r = answerAll('A');
+    assert.ok(Math.abs(r.record.pointsEarned - 750) <= 5, `expected about 750, got ${r.record.pointsEarned}`);
+    assert.notEqual(r.record.badge, '1st to Answer');
+  });
+
+  test('streak bonus off: a player on a streak gets no extra 10%', () => {
+    engine.setQuestions([q(1, 1)]);
+    players(1);
+    engine.setRules({ firstBlood: false, streak: false });
+    goLive(10000);
+    engine.players[engine.sockets['s1']].streak = 2;
+    assert.ok(Math.abs(answerAll('A').record.pointsEarned - 750) <= 5);
+    engine.rules.streak = true; // setRules is lobby-only; flip it directly to compare the same answer
+    engine.players[engine.sockets['s1']].streak = 2;
+    engine.answers = {};
+    assert.ok(Math.abs(answerAll('A').record.pointsEarned - 850) <= 5);
+  });
+
+  test('round reset off: totals carry into the next round', () => {
+    twoRounds();
+    players(1);
+    engine.startGame();
+    engine.startQuestion(); engine.questionStartTime = Date.now(); engine.questionEndsAt = Date.now() + 20000;
+    answerAll('A');
+    engine.endQuestion();
+    const before = engine.players[engine.sockets['s1']].score;
+    engine.startQuestion(); // into round 2
+    assert.ok(before > 0);
+    assert.equal(engine.players[engine.sockets['s1']].score, before);
+  });
+
+  test('round reset on: everyone still in starts the next round at 0', () => {
+    engine.setRules({ roundReset: true });
+    twoRounds();
+    players(2);
+    engine.startGame();
+    engine.startQuestion(); engine.questionStartTime = Date.now(); engine.questionEndsAt = Date.now() + 20000;
+    engine.submitAnswer('s1', 'A');
+    engine.endQuestion();
+    assert.ok(engine.players[engine.sockets['s1']].score > 0);
+    engine.startQuestion(); // into round 2
+    assert.equal(engine.players[engine.sockets['s1']].score, 0);
+    assert.equal(engine.players[engine.sockets['s1']].totalResponseTime, 0);
+  });
+
+  test('the chosen rules survive a game reset, and the game records them in its state', () => {
+    engine.setRules({ streak: false, roundReset: true });
+    engine.reset();
+    assert.equal(engine.rules.streak, false);
+    assert.equal(engine.rules.roundReset, true);
+    assert.equal(engine.getState().rules.roundReset, true);
   });
 });
 

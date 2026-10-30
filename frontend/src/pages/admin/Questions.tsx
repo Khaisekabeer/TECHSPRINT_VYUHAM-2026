@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, API_BASE, fetchObjectUrl, session } from '../../lib/api';
+import { api, ApiError, fetchObjectUrl } from '../../lib/api';
 import { OPTION_LABELS, Panel } from '../../components/ui';
 
 interface Question {
@@ -599,16 +599,12 @@ function QuestionVideoPicker({ videoId, onChange }: { videoId: string | null; on
     if (file.size > VIDEO_MAX_BYTES) { setError('Video must be under 50 MB'); return; }
     setBusy(true);
     try {
-      // The file goes up as the raw body (not JSON), so this bypasses api().
-      const s = session.get();
-      const res = await fetch(`${API_BASE}/api/questions/videos`, {
-        method: 'POST',
-        headers: { 'Content-Type': file.type, ...(s ? { Authorization: `Bearer ${s.token}` } : {}) },
-        body: file,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new ApiError(data.error || 'Upload failed', res.status, data);
-      onChange(data.id);
+      // The file goes straight to storage with a one-time link: too big to pass through the API.
+      const { url, path } = await api<{ url: string; path: string }>('/questions/videos/upload', { method: 'POST', body: { mime: file.type, bytes: file.size } });
+      const res = await fetch(url, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+      if (!res.ok) throw new Error('Upload failed — check the file is an MP4 or WebM under 50 MB');
+      const saved = await api<{ id: string }>('/questions/videos', { method: 'POST', body: { path } });
+      onChange(saved.id);
     } catch (err) {
       setError((err as Error).message || 'Upload failed');
     } finally {

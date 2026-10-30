@@ -368,7 +368,8 @@ export default function ParticipantView() {
           </div>
           <Rise d={250} as="h2" className="display" style={{ fontSize: 'clamp(2.4rem, 12vw, 3.6rem)' }}>{gameState.levelConfig?.name}</Rise>
           <Rise d={400} style={{ marginTop: 26 }}>
-            <span className="chip chip-heat">× {gameState.levelConfig?.multiplier} points</span>
+            {gameState.rules?.multiplier !== false && <span className="chip chip-heat">× {gameState.levelConfig?.multiplier} points</span>}
+            {gameState.rules?.roundReset && <span className="chip" style={{ marginLeft: 8 }}>Everyone starts this round at 0</span>}
           </Rise>
         </main>
       </div>
@@ -502,7 +503,7 @@ export default function ParticipantView() {
             <Rise d={250} className="display tabular" style={{ fontSize: '2.6rem' }}>+{answerResult.points}</Rise>
           ) : (
             <Rise d={250} as="p" className="dim" style={{ margin: 0 }}>
-              {notAnswered ? "You didn't answer in time." : '0 points this round. Streak reset.'}
+              {notAnswered ? "You didn't answer in time." : `0 points for this question.${gameState.rules?.streak === false ? '' : ' Streak reset.'}`}
             </Rise>
           )}
 

@@ -204,7 +204,9 @@ If the organizer wants the exact URL `vyuham.duk.ac.in/#/techfest` to land on th
 
 Each question belongs to a level and is multiple-choice (2-4 options) or true/false, a timer (5-300 s) and base points. Hidden questions stay in the bank but are left out of the game.
 
-Scoring: `points × level multiplier`, scaled from 100% (instant) to 50% (last second), plus +200 for the first correct answer and +100 on a streak of 3+. Standings: higher score first; on a tie, less total answer time (a skipped question counts as its full timer, so skipping never helps).
+Scoring: `points × level multiplier`, scaled from 100% (instant) to 50% (last second), plus 20% of that base for the first correct answer on a question and 10% on each correct answer in a streak of 3+. Standings: higher score first; on a tie, less total answer time (a skipped question counts as its full timer, so skipping never helps).
+
+**Scoring rules** (host console, lobby): the coordinator can switch off level multipliers, the first-to-answer bonus and the streak bonus, and switch on **Reset points every round**, where everyone still in starts each round at 0 and the cut uses that round's points. Unticking the first three and ticking the reset gives Kahoot-style scoring with eliminations. The rules lock when the game starts and are saved with the game.
 
 ## Eliminations & disqualification
 

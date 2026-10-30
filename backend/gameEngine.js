@@ -9,6 +9,13 @@ const FAST_CORRECT_MS = 1500;
 const AVATAR_RE = /^[ab]:[A-Za-z0-9]{1,16}$/;
 // Level themes; a level without one gets the next in this order by its round.
 const THEME_ORDER = ['blast', 'pop', 'arcade', 'circuit'];
+// Scoring rules the coordinator can switch off in the lobby. These defaults are the original rules.
+const DEFAULT_RULES = {
+  multiplier: true,  // each level's points multiplier
+  firstBlood: true,  // +20% of base for the first correct answer on each question
+  streak: true,      // +10% of base for each correct answer once a streak of 3 is reached
+  roundReset: false, // every player starts each round at 0 points (and the cut uses round points)
+};
 
 // What other clients may see about a player (never the rejoin token or ticket).
 function publicPlayer(p) {
@@ -37,6 +44,8 @@ class GameEngine {
     // Coordinator's choice, kept across resets: hide the standings during the last round so the
     // winner is only revealed at the final results.
     this.hideFinalStandings = false;
+    // Scoring rules, chosen by the coordinator before the game starts; kept across resets.
+    this.rules = { ...DEFAULT_RULES };
     this.reset();
   }
 
@@ -390,6 +399,28 @@ class GameEngine {
     return this.activePlayers().filter(p => p.connected).length;
   }
 
+  // Coordinator's scoring rules (lobby only). Unknown keys are ignored; the rules are fixed once the game starts.
+  setRules(input) {
+    if (this.state !== 'lobby') return { error: 'Scoring can only be changed before the game starts' };
+    const next = { ...this.rules };
+    for (const key of Object.keys(DEFAULT_RULES)) {
+      if (typeof input?.[key] === 'boolean') next[key] = input[key];
+    }
+    this.rules = next;
+    return { success: true, rules: { ...this.rules } };
+  }
+
+  // Round reset: everyone still in starts the new round at 0 (the tie-break time restarts too).
+  resetRoundScores() {
+    this.activePlayers().forEach(p => { p.score = 0; p.streak = 0; p.totalResponseTime = 0; });
+  }
+
+  // The level's details as shown to players: with the multiplier rule off, every level counts ×1.
+  levelConfigShown() {
+    const info = this.levelInfo(this.currentLevel);
+    return this.rules.multiplier ? info : { ...info, multiplier: 1 };
+  }
+
   startGame() {
     if (this.state !== 'lobby') return { error: 'Game already started' };
     if (this.questions.length === 0) return { error: 'No questions loaded' };
@@ -412,6 +443,7 @@ class GameEngine {
     if (this.state !== 'intro' && (q.level || 1) !== this.currentLevel) {
       this.currentLevel = q.level || 1;
       this.state = 'intro';
+      if (this.rules.roundReset) this.resetRoundScores();
       return { success: true };
     }
 
@@ -449,20 +481,20 @@ class GameEngine {
     if (isCorrect) {
       const timeLimitMs = (q.timeLimit || 20) * 1000;
       const timeRemaining = Math.max(0, timeLimitMs - timeTaken);
-      const { multiplier } = this.levelInfo(this.currentLevel);
+      const multiplier = this.rules.multiplier ? this.levelInfo(this.currentLevel).multiplier : 1;
 
       // Base points + time bonus
       const baseScore = (q.points || 1000) * multiplier;
       points = Math.round(baseScore * (0.5 + 0.5 * (timeRemaining / timeLimitMs)));
 
-      if (!this.firstBloodAwarded) {
+      if (this.rules.firstBlood && !this.firstBloodAwarded) {
         points += Math.round(baseScore * 0.20);
         this.firstBloodAwarded = true;
         badge = '1st to Answer';
       }
 
       // Score and streak are applied in endQuestion, so nothing the player can see changes before the reveal.
-      if (player.streak + 1 >= 3) {
+      if (this.rules.streak && player.streak + 1 >= 3) {
         points += Math.round(baseScore * 0.10);
         if (!badge) badge = 'Streak Master';
       }
@@ -591,7 +623,8 @@ class GameEngine {
       currentLevel: this.levelInfo(this.currentLevel).round, // round number shown to people
       totalLevels: this.levelNumbers().length,
       totalQuestions: this.questions.length,
-      levelConfig: this.levelInfo(this.currentLevel),
+      levelConfig: this.levelConfigShown(),
+      rules: { ...this.rules },
       playersLeft: this.activePlayers().length,
       cutPending: !!this.pendingCut,
       hideFinalStandings: this.hideFinalStandings,
@@ -621,3 +654,4 @@ class GameEngine {
 
 module.exports = new GameEngine();
 module.exports.ANSWER_GRACE_MS = ANSWER_GRACE_MS;
+module.exports.DEFAULT_RULES = DEFAULT_RULES;

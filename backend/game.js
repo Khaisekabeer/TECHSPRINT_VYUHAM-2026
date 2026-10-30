@@ -252,8 +252,8 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     start_game(callback, data, staff) {
       const result = gameEngine.startGame();
       if (result.error) return callback(result);
-      db.markGameStarted(gameEngine.gameId, gameEngine.rankedPlayers());
-      logEvent('game_started', { detail: { players: gameEngine.activePlayers().length, questions: gameEngine.questions.length, by: staff?.displayName ?? null } });
+      db.markGameStarted(gameEngine.gameId, gameEngine.rankedPlayers(), gameEngine.rules);
+      logEvent('game_started', { detail: { players: gameEngine.activePlayers().length, questions: gameEngine.questions.length, rules: gameEngine.rules, by: staff?.displayName ?? null } });
       flushEvents();
       broadcastState();
       callback(result);
@@ -322,6 +322,16 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       flushEvents();
       broadcastState();
       callback({ success: true, hide: gameEngine.hideFinalStandings });
+    },
+
+    // Scoring rules for the game (lobby only): which bonuses and multipliers apply, and round reset.
+    set_scoring_rules(callback, data, staff) {
+      const result = gameEngine.setRules(data?.rules);
+      if (result.error) return callback(result);
+      logEvent('setting_changed', { detail: { scoringRules: result.rules, by: staff?.displayName ?? null } });
+      flushEvents();
+      broadcastState();
+      callback(result);
     },
 
     eliminate_player(callback, data, staff) {
