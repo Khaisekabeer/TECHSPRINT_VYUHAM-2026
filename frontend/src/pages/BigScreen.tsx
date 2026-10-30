@@ -1,4 +1,5 @@
 import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
+import confetti from 'canvas-confetti';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Avatar, Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
@@ -420,6 +421,18 @@ function Podium({ board }: { board: any[] }) {
     { p: board[2], place: 3, height: '18vh', delay: 200 },
   ];
   const rest = board.slice(3, 10);
+
+  // Confetti from both sides, starting as the champion appears on the podium.
+  useEffect(() => {
+    const colors = ['#3da9fc', '#ff5c8a', '#ffc531', '#3ddc97'];
+    const burst = () => {
+      confetti({ particleCount: 90, angle: 60, spread: 70, origin: { x: 0, y: 0.75 }, colors });
+      confetti({ particleCount: 90, angle: 120, spread: 70, origin: { x: 1, y: 0.75 }, colors });
+    };
+    const timers = [1400, 2400, 3400, 4600, 6000].map(ms => setTimeout(burst, ms));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', padding: '4vh 4vw 0' }}>
       <Rings size="150vh" style={{ top: '100%', left: '50%', transform: 'translate(-50%, -50%)', opacity: 0.5 }} />
