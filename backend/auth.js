@@ -174,14 +174,18 @@ function requireVault(req, res, next) {
 // First run: create an admin so someone can sign in and set up the rest.
 async function ensureBootstrapAdmin() {
   if ((await store.countStaff()) > 0) return;
-  const password = process.env.ADMIN_PASSWORD || 'admin';
+  // Never a guessable default: without ADMIN_PASSWORD a random one is generated and shown once.
+  const generated = !process.env.ADMIN_PASSWORD;
+  const password = process.env.ADMIN_PASSWORD || crypto.randomBytes(12).toString('base64url');
   await store.createStaff({
     username: 'admin',
     display_name: 'Admin',
     role: 'admin',
     password_hash: await hashSecret(password),
   });
-  console.warn('Created first admin account "admin" (password = ADMIN_PASSWORD). Change it in Admin → Staff.');
+  console.warn(generated
+    ? `Created first admin account "admin" with password ${password} (shown once; set ADMIN_PASSWORD to choose it). Change it in Admin → Staff.`
+    : 'Created first admin account "admin" (password = ADMIN_PASSWORD). Change it in Admin → Staff.');
 }
 
 module.exports = {

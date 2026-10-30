@@ -40,7 +40,7 @@ Every staff member has their own login (username or email), created by an admin 
 | **Coordinator** | Conducts the live event | Host console: **loads a question set with its PIN**, then start, next question, reveal, disqualify, reset; live monitor |
 | **Volunteer** | Monitors the live event | Pass check-in scanner and the read-only live monitor (who is online/disconnected, answers in) |
 
-- **First sign-in:** on first start the server creates an admin `admin` whose password is `ADMIN_PASSWORD` from `backend/.env`. Sign in, create real accounts, then change or disable `admin`.
+- **First sign-in:** on first start the server creates an admin `admin` whose password is `ADMIN_PASSWORD` from `backend/.env`. If that is not set, a random password is printed once in the server log. Sign in, create real accounts, then change or disable `admin`.
 
 ## Question sets & PINs
 
@@ -200,6 +200,8 @@ If the organizer wants the exact URL `vyuham.duk.ac.in/#/techfest` to land on th
 
 **Picture questions** ("identify this person / object"): add a picture in the question editor. It is resized in the browser, stored encrypted with the question key, and served by the live game server only once that question is live — on the projector (large, next to the options) and on phones.
 
+**Video questions:** add an MP4 or WebM video (up to 50 MB) in the question editor. The file is kept in the private `question-videos` storage bucket, and the question refers to it from its encrypted content. Players and the projector get a link to the video only while that question is live; the link lasts 12 hours.
+
 Each question belongs to a level and is multiple-choice (2-4 options) or true/false, a timer (5-300 s) and base points. Hidden questions stay in the bank but are left out of the game.
 
 Scoring: `points × level multiplier`, scaled from 100% (instant) to 50% (last second), plus +200 for the first correct answer and +100 on a streak of 3+. Standings: higher score first; on a tie, less total answer time (a skipped question counts as its full timer, so skipping never helps).
@@ -269,6 +271,15 @@ SIM_USER=... SIM_PASSWORD=... node simulate-event.js --auto   # the script condu
 - Bots answer the test questions from `npm run seed:test` correctly according to their skill; other questions at random.
 - Bots rejoin after a game reset, so you can run several rounds. Event-day server: `--server=https://game.yourdomain.com`.
 - `--auto` options: `--lobby=10`, `--intro=4`, `--reveal=6` (seconds). Results are saved to Supabase like a real game.
+
+## Tests
+
+```bash
+cd backend
+npm test
+```
+
+Spec tests for the game rules (scoring, answer timing, cuts, rounds, media links), a full two-level game, question encryption and staff passwords. They need no database or network.
 
 ## Load test
 
