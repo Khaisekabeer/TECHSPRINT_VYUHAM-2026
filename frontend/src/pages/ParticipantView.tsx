@@ -3,6 +3,8 @@ import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Avatar, Brand, Rings, Rise, Spinner, TimerRing, OPTION_LABELS } from '../components/ui';
 import { API_BASE } from '../lib/api';
+import QuestionPicture from '../components/QuestionPicture';
+import QuestionVideo from '../components/QuestionVideo';
 import confetti from 'canvas-confetti';
 
 const TOKEN_KEY = 'vyuham_player_token';
@@ -341,6 +343,11 @@ export default function ParticipantView() {
               ? (exit.note || 'The quiz host removed you from the game.')
               : <>{String(exit.note || 'Eliminated').replace(/\.$/, '')}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.</>}
           </Rise>
+          {!disqualified && (
+            <Rise d={340} as="p" className="display" style={{ margin: '22px 0 0', fontSize: '1.6rem', letterSpacing: '0.02em' }}>
+              Well played. Better luck next time!
+            </Rise>
+          )}
           <Rise d={420} as="p" className="eyebrow" style={{ marginTop: 32 }}>
             {disqualified ? 'Speak to the quiz desk if you think this is a mistake' : 'Stay and watch the rest on the big screen'}
           </Rise>
@@ -387,6 +394,8 @@ export default function ParticipantView() {
 
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', paddingTop: 18, paddingBottom: 18 }}>
           <p className="eyebrow" style={{ margin: '0 0 14px', textAlign: 'center' }}>Read the question on the big screen</p>
+          {q?.imageUrl && <QuestionPicture path={q.imageUrl} maxHeight="30vh" style={{ marginBottom: 14 }} />}
+          {q?.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="30vh" style={{ marginBottom: 14 }} />}
 
           <div style={{ flex: 1, maxHeight: 560, display: 'grid', gridAutoRows: 'minmax(68px, 1fr)', gap: 10 }}>
             {q?.options?.map((opt: string, idx: number) => {
@@ -534,7 +543,7 @@ function RoundEndNotice({ roundEnd, standing }: { roundEnd: any; standing: any }
         </>
       ) : (
         <>
-          <div className="display" style={{ fontSize: '1.8rem', marginTop: 6, color: 'var(--good)' }}>You're through to round {roundEnd.round + 1}!</div>
+          <div className="display" style={{ fontSize: '1.8rem', marginTop: 6, color: 'var(--good)' }}>Congratulations! You're through to round {roundEnd.round + 1}.</div>
           <p className="dim" style={{ margin: '6px 0 0', fontSize: '0.9rem', lineHeight: 1.5 }}>
             {standing ? <>You're <strong>#{standing.rank}</strong> of {standing.of} still in.</> : null}
             {roundEnd.eliminated > 0 ? ` ${roundEnd.eliminated} player${roundEnd.eliminated === 1 ? '' : 's'} eliminated.` : ''}

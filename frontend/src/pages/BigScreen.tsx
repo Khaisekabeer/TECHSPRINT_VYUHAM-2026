@@ -3,6 +3,8 @@ import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Avatar, Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
 import { Standings } from '../components/Standings';
+import QuestionPicture from '../components/QuestionPicture';
+import QuestionVideo from '../components/QuestionVideo';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — join now',
@@ -263,13 +265,15 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
         <TimerRing value={timeLeft} max={maxTime} size={128} stroke={6} />
       </div>
 
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3vh 2vw' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '3vh', padding: '3vh 2vw' }}>
         <h2 key={q?.id} className="rise" style={{
           margin: 0, maxWidth: 1400, textAlign: 'center', fontWeight: 600,
           fontSize: 'clamp(2rem, 3.6vw, 4.4rem)', lineHeight: 1.18, letterSpacing: '-0.02em', textWrap: 'balance',
         }}>
           {q?.text}
         </h2>
+        {q?.imageUrl && <QuestionPicture path={q.imageUrl} maxHeight="38vh" />}
+        {q?.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="44vh" style={{ width: 'auto', maxWidth: '100%' }} />}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.6vh 1.4vw' }}>

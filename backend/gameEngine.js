@@ -609,6 +609,10 @@ class GameEngine {
         options: q.options,
         timeLimit: q.timeLimit,
         hasImage: !!q.image,
+        // Where the picture is served from (the game server), only while this question is live.
+        imageUrl: q.image ? `/live-image/${this.currentQuestionIndex}?g=${this.gameId}` : null,
+        // A link to the video file in storage, sent only while this question is live.
+        videoUrl: q.video ? q.video.url : null,
       } : null,
       finalLeaderboard: this.state === 'podium' ? this.getPlayersList() : null,
     };

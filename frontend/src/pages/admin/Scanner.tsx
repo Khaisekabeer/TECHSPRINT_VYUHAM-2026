@@ -77,6 +77,13 @@ export default function Scanner() {
         decoded => { lookup(decoded); },
         () => { /* no code in this frame */ },
       );
+      // The scanner maps the square frame onto the camera image by stretching it, so the preview must
+      // have the camera's own shape. Otherwise the frame drifts off what the camera actually sees.
+      const video = document.querySelector<HTMLVideoElement>(`#${REGION_ID} video`);
+      const box = video?.closest<HTMLElement>('.scan-box');
+      const fitToCamera = () => { if (box && video) box.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`; };
+      if (video && video.readyState >= 1) fitToCamera();
+      else video?.addEventListener('loadedmetadata', fitToCamera, { once: true });
       setCameraOn(true);
     } catch (err: any) {
       scannerRef.current = null;

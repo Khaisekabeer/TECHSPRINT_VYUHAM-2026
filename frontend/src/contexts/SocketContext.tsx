@@ -15,18 +15,24 @@ async function resolveSocketUrl(): Promise<string> {
 }
 
 let socketPromise: Promise<Socket> | null = null;
+let gameServerUrl = '';
 const getSocket = () => {
-  socketPromise ??= resolveSocketUrl().then(url => io(url, {
-    reconnection: true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay: 1000,
-  }));
+  socketPromise ??= resolveSocketUrl().then(url => {
+    gameServerUrl = url;
+    return io(url, {
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+    });
+  });
   return socketPromise;
 };
 
 interface SocketContextType {
   socket: Socket;
   isConnected: boolean;
+  // Address of the game server, for files it serves (question pictures).
+  serverUrl: string;
 }
 
 const SocketContext = createContext<SocketContextType | null>(null);
@@ -56,7 +62,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
   if (!socket) return <Spinner label="Loading…" />;
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={{ socket, isConnected, serverUrl: gameServerUrl }}>
       {children}
     </SocketContext.Provider>
   );

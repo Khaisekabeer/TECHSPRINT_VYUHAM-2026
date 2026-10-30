@@ -22,6 +22,8 @@ const THEMES = ['blast', 'pop', 'arcade', 'circuit', 'classic'];
 const CUT_RULES = ['top', 'percent', 'min_score', 'bottom', 'min_correct'];
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+const VIDEO_TYPES = ['video/mp4', 'video/webm'];
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 const USERNAME_RE = /^[a-zA-Z0-9._@+-]{3,64}$/; // plain usernames or email addresses
 
@@ -60,7 +62,10 @@ function validateQuestion(body) {
   // Optional picture for "identify this person / object" questions (uploaded separately, encrypted).
   const imageId = body.imageId == null || body.imageId === '' ? null : String(body.imageId);
   check(imageId === null || UUID_RE.test(imageId), 'Invalid image');
-  return { level, type, text, options, correctAnswer, timeLimit, points, imageId, isActive: body.isActive !== false };
+  // Optional video, uploaded separately (stored in the private video bucket).
+  const videoId = body.videoId == null || body.videoId === '' ? null : String(body.videoId);
+  check(videoId === null || UUID_RE.test(videoId), 'Invalid video');
+  return { level, type, text, options, correctAnswer, timeLimit, points, imageId, videoId, isActive: body.isActive !== false };
 }
 
 /**
@@ -534,12 +539,13 @@ module.exports = function createApi(hooks) {
   const qm = [requireStaff(QM), requireVault];
   const dekOf = req => req.session.dek;
   const bankOf = req => req.session.bankId;
-  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId });
+  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId, videoId: q.videoId });
   const changed = req => hooks.onQuestionsChanged(dekOf(req), bankOf(req));
-  // The image a stored question points to (inside its encrypted content).
-  const imageOf = async (req, id) => {
+  // The image or video a stored question points to (inside its encrypted content).
+  const mediaOf = async (req, id) => {
     const row = (await store.listQuestionRows(bankOf(req))).find(r => r.id === id);
-    return row ? questionKeys.decryptRow(row, dekOf(req)).imageId ?? null : null;
+    const content = row ? questionKeys.decryptRow(row, dekOf(req)) : {};
+    return { imageId: content.imageId ?? null, videoId: content.videoId ?? null };
   };
 
   // Rename or delete the open set.
@@ -578,6 +584,24 @@ module.exports = function createApi(hooks) {
     res.send(vault.decryptImage(dekOf(req), image.payload));
   }));
 
+  // Upload a question video: the raw file as the request body (up to 50 MB), kept in the private video bucket.
+  const videoBody = express.raw({ type: VIDEO_TYPES, limit: MAX_VIDEO_BYTES });
+  api.post('/questions/videos', videoBody, ...qm, route(async (req, res) => {
+    const mime = String(req.headers['content-type'] || '').split(';')[0];
+    check(VIDEO_TYPES.includes(mime), 'Use an MP4 or WebM video');
+    check(Buffer.isBuffer(req.body) && req.body.length > 0, 'Choose a video file');
+    const video = await store.insertVideo({ bank_id: bankOf(req), mime, bytes: req.body.length, created_by: req.session.staff.id }, req.body);
+    res.status(201).json({ id: video.id });
+  }));
+
+  // Preview for the quiz master: a short-lived link to the video file (never cached).
+  api.get('/questions/videos/:id', ...qm, route(async (req, res) => {
+    check(UUID_RE.test(req.params.id), 'Invalid video');
+    const [video] = await store.getVideos([req.params.id], bankOf(req));
+    if (!video) return res.status(404).json({ error: 'Video not found' });
+    res.set('Cache-Control', 'no-store').json({ url: await store.signedVideoUrl(video.path) });
+  }));
+
   api.post('/questions/recovery-code', ...qm, route(async (req, res) => {
     res.json({ recoveryCode: await questionKeys.rotateRecoveryCode(bankOf(req), dekOf(req)) });
   }));
@@ -601,19 +625,21 @@ module.exports = function createApi(hooks) {
     const q = validateQuestion(req.body || {});
     await checkLevelExists(req, q.level);
     const id = Number(req.params.id);
-    const oldImage = await imageOf(req, id);
+    const old = await mediaOf(req, id);
     const row = await store.updateQuestion(bankOf(req), id, q, sealContent(req, q));
     if (!row) return res.status(404).json({ error: 'Question not found' });
-    if (oldImage && oldImage !== q.imageId) await store.deleteImages([oldImage]);
+    if (old.imageId && old.imageId !== q.imageId) await store.deleteImages([old.imageId]);
+    if (old.videoId && old.videoId !== q.videoId) await store.deleteVideos(bankOf(req), [old.videoId]);
     changed(req);
     res.json(questionKeys.decryptRow(row, dekOf(req)));
   }));
 
   api.delete('/questions/:id', ...qm, route(async (req, res) => {
     const id = Number(req.params.id);
-    const image = await imageOf(req, id);
+    const media = await mediaOf(req, id);
     await store.deleteQuestion(bankOf(req), id);
-    if (image) await store.deleteImages([image]);
+    if (media.imageId) await store.deleteImages([media.imageId]);
+    if (media.videoId) await store.deleteVideos(bankOf(req), [media.videoId]);
     changed(req);
     res.json({ success: true });
   }));

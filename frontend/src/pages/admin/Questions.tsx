@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { api, ApiError, fetchObjectUrl } from '../../lib/api';
+import { api, ApiError, API_BASE, fetchObjectUrl, session } from '../../lib/api';
 import { OPTION_LABELS, Panel } from '../../components/ui';
 
 interface Question {
   id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
   options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
   imageId?: string | null; // picture for "identify this person / object" questions (stored encrypted)
+  videoId?: string | null; // video shown while the question is live (stored in the private video bucket)
 }
 type Draft = Omit<Question, 'id' | 'position'> & { id?: number };
 
@@ -25,7 +26,7 @@ const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
 ];
 
 const blank = (level: number): Draft => ({
-  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null,
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', timeLimit: 20, points: 1000, isActive: true, imageId: null, videoId: null,
 });
 
 interface SetSummary { id: string; name: string; ready: boolean; questions: number; active: number; levels: number }
@@ -462,6 +463,7 @@ Type the set name to confirm:`);
                   <span className="pill">{q.points} pts</span>
                   <span className="pill">{q.type === 'tf' ? 'True / False' : 'Multiple choice'}</span>
                   {q.imageId && <span className="pill">🖼 Picture</span>}
+                  {q.videoId && <span className="pill">🎬 Video</span>}
                   {!q.isActive && <span className="pill pill-warn">Hidden from game</span>}
                 </div>
               </div>
@@ -577,6 +579,59 @@ async function resizeImage(file: File, maxSide = 1600): Promise<{ mime: string; 
   return { mime: 'image/jpeg', data: dataUrl.slice(dataUrl.indexOf(',') + 1) };
 }
 
+// A question video, kept in the private video bucket. The preview uses a short-lived link from the server.
+const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+function QuestionVideoPicker({ videoId, onChange }: { videoId: string | null; onChange: (id: string | null) => void }) {
+  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!videoId) { setPreview(null); return; }
+    api<{ url: string }>(`/questions/videos/${videoId}`).then(r => setPreview(r.url)).catch(() => setError('Could not load the video'));
+  }, [videoId]);
+
+  const pick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    if (file.size > VIDEO_MAX_BYTES) { setError('Video must be under 50 MB'); return; }
+    setBusy(true);
+    try {
+      // The file goes up as the raw body (not JSON), so this bypasses api().
+      const s = session.get();
+      const res = await fetch(`${API_BASE}/api/questions/videos`, {
+        method: 'POST',
+        headers: { 'Content-Type': file.type, ...(s ? { Authorization: `Bearer ${s.token}` } : {}) },
+        body: file,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new ApiError(data.error || 'Upload failed', res.status, data);
+      onChange(data.id);
+    } catch (err) {
+      setError((err as Error).message || 'Upload failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="form-row" style={{ marginTop: 14 }}>
+      <span className="eyebrow">Video (optional) — played to players while the question is live, up to 50 MB</span>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
+        {preview && <video src={preview} controls playsInline style={{ width: 240, maxHeight: 160, border: '1px solid var(--line-strong)', borderRadius: 8, background: '#000' }} />}
+        <label className="btn btn-ghost btn-sm" style={{ cursor: busy ? 'wait' : 'pointer' }}>
+          {busy ? 'Uploading…' : videoId ? 'Replace video' : '+ Add video'}
+          <input type="file" accept="video/mp4,video/webm" onChange={pick} disabled={busy} style={{ display: 'none' }} />
+        </label>
+        {videoId && <button type="button" className="btn btn-danger btn-sm" onClick={() => onChange(null)} disabled={busy}>Remove video</button>}
+      </div>
+      {error && <p className="error-text" style={{ textAlign: 'left' }}>{error}</p>}
+    </div>
+  );
+}
+
 function QuestionImage({ imageId, onChange }: { imageId: string | null; onChange: (id: string | null) => void }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -683,6 +738,7 @@ function Editor({ draft, levels, onSave, onCancel }: {
         </div>
 
         <QuestionImage imageId={d.imageId ?? null} onChange={imageId => setD({ ...d, imageId })} />
+        <QuestionVideoPicker videoId={d.videoId ?? null} onChange={videoId => setD({ ...d, videoId })} />
 
         <fieldset style={{ border: 0, padding: 0, margin: '16px 0 0' }}>
           <legend className="eyebrow" style={{ marginBottom: 10 }}>Options — tick the correct answer</legend>

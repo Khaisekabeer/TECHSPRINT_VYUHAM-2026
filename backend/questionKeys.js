@@ -138,6 +138,9 @@ async function afterOpen(bankId, dek) {
   const used = new Set(rows.map(r => decryptRow(r, dek).imageId).filter(Boolean));
   const stale = (await store.listImageMeta(bankId)).filter(i => !used.has(i.id) && Date.now() - new Date(i.created_at).getTime() > 3600e3);
   if (stale.length) await store.deleteImages(stale.map(i => i.id));
+  const usedVideos = new Set(rows.map(r => decryptRow(r, dek).videoId).filter(Boolean));
+  const staleVideos = (await store.listVideoMeta(bankId)).filter(v => !usedVideos.has(v.id) && Date.now() - new Date(v.created_at).getTime() > 3600e3);
+  if (staleVideos.length) await store.deleteVideos(bankId, staleVideos.map(v => v.id));
 }
 
 // Decrypted, active questions of one set in play order (level number, then position), each
@@ -159,7 +162,16 @@ async function loadGameQuestions(bankId, dek) {
   });
   const images = new Map((await store.getImages(questions.map(q => q.imageId).filter(Boolean), bankId))
     .map(img => [img.id, { mime: img.mime, data: vault.decryptImage(dek, img.payload).toString('base64') }]));
-  return questions.map(({ imageId, ...q }) => ({ ...q, image: imageId ? images.get(imageId) ?? null : null }));
+  // Videos are files in the private bucket: each gets a link that lasts the whole event (see store.js).
+  const videos = new Map();
+  for (const v of await store.getVideos(questions.map(q => q.videoId).filter(Boolean), bankId)) {
+    videos.set(v.id, { mime: v.mime, url: await store.signedVideoUrl(v.path) });
+  }
+  return questions.map(({ imageId, videoId, ...q }) => ({
+    ...q,
+    image: imageId ? images.get(imageId) ?? null : null,
+    video: videoId ? videos.get(videoId) ?? null : null,
+  }));
 }
 
 module.exports = {

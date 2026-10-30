@@ -412,6 +412,50 @@ function deleteImages(ids) {
   return run(supabase.from('question_images').delete().in('id', ids), 'Deleting images');
 }
 
+// ─── Question videos: files in a private storage bucket, indexed by question_videos ──────────
+const VIDEO_BUCKET = 'question-videos';
+// Long enough for a whole event. Links are only handed out while their question is live.
+const VIDEO_LINK_SECONDS = 12 * 3600;
+
+async function storageRun(request, label) {
+  const { data, error } = await request;
+  if (error) throw new Error(`${label}: ${error.message}`);
+  return data;
+}
+
+async function insertVideo(row, bytes) {
+  const path = `${row.bank_id}/${require('crypto').randomUUID()}`;
+  await storageRun(supabase.storage.from(VIDEO_BUCKET).upload(path, bytes, { contentType: row.mime }), 'Uploading video');
+  try {
+    const rows = await run(supabase.from('question_videos').insert({ ...row, path }).select('id, mime, bytes'), 'Saving video');
+    return rows[0];
+  } catch (err) {
+    await supabase.storage.from(VIDEO_BUCKET).remove([path]);
+    throw err;
+  }
+}
+
+function getVideos(ids, bankId) {
+  if (!ids.length) return Promise.resolve([]);
+  return run(supabase.from('question_videos').select('id, mime, path').in('id', ids).eq('bank_id', bankId), 'Loading videos');
+}
+
+function listVideoMeta(bankId) {
+  return run(supabase.from('question_videos').select('id, created_at').eq('bank_id', bankId), 'Listing videos');
+}
+
+async function deleteVideos(bankId, ids) {
+  if (!ids.length) return;
+  const rows = await getVideos(ids, bankId);
+  if (!rows.length) return;
+  await storageRun(supabase.storage.from(VIDEO_BUCKET).remove(rows.map(r => r.path)), 'Deleting video file');
+  await run(supabase.from('question_videos').delete().in('id', rows.map(r => r.id)), 'Deleting videos');
+}
+
+async function signedVideoUrl(path) {
+  return (await storageRun(supabase.storage.from(VIDEO_BUCKET).createSignedUrl(path, VIDEO_LINK_SECONDS), 'Signing video link')).signedUrl;
+}
+
 // ─── Old single-bank keys (read once when moving the old bank into a set) ─────
 async function getVault() {
   const rows = await run(supabase.from('question_vault').select('*').eq('id', 1).limit(1), 'Loading question vault');
@@ -544,6 +588,11 @@ module.exports = {
   getImages,
   listImageMeta,
   deleteImages,
+  insertVideo,
+  getVideos,
+  listVideoMeta,
+  deleteVideos,
+  signedVideoUrl,
   listLevels,
   createLevel,
   updateLevel,
