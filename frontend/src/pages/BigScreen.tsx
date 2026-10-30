@@ -10,6 +10,7 @@ import QuestionVideo from '../components/QuestionVideo';
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — join now',
   intro: 'Level briefing',
+  video: 'Video',
   question: 'Question live',
   leaderboard: 'Reveal',
   podium: 'Final results',
@@ -144,10 +145,16 @@ export default function BigScreen() {
 
         {phase === 'lobby' && gameState && <Lobby joinAddress={joinAddress} players={players} />}
         {phase === 'intro' && <Intro level={level} config={gameState.levelConfig} rules={gameState.rules} />}
+        {phase === 'video' && gameState.video && (
+          <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', justifyContent: 'center', padding: '3vh 4vw' }}>
+            <QuestionVideo key={gameState.video.url} src={gameState.video.url} maxHeight="100%" onDone={() => socket.emit('video_ended')}
+              style={{ width: 'auto', height: '100%', maxWidth: '100%', margin: 0 }} />
+          </div>
+        )}
         {phase === 'question' && (
           <Question gameState={gameState} timeLeft={timeLeft} maxTime={maxTime} answerCount={answerCount} level={level} />
         )}
-        {phase === 'leaderboard' && <Reveal result={questionResult} players={players} hideStandings={!!gameState.standingsHidden} />}
+        {phase === 'leaderboard' && <Reveal result={questionResult} players={players} hideStandings={!!gameState.standingsHidden} round={level} />}
         {phase === 'podium' && <Podium board={(gameState.finalLeaderboard || players).filter((p: any) => p.status !== 'disqualified')} />}
       </div>
     </div>
@@ -274,11 +281,10 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
         }}>
           {q?.text}
         </h2>
-        {/* Pictures and videos take the space that is left, so the options always stay on screen. */}
-        {(q?.imageUrl || q?.videoUrl) && (
-          <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', justifyContent: 'center', gap: '2vw' }}>
-            {q.imageUrl && <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ height: '100%', margin: 0 }} />}
-            {q.videoUrl && <QuestionVideo src={q.videoUrl} maxHeight="100%" style={{ width: 'auto', height: '100%', maxWidth: '100%', margin: 0 }} />}
+        {/* The picture takes the space that is left, so the options always stay on screen. */}
+        {q?.imageUrl && (
+          <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ height: '100%', margin: 0 }} />
           </div>
         )}
       </div>
@@ -304,12 +310,14 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
 }
 
 // ─── Reveal: answer distribution + standings ──────────────────────────────────
-function Reveal({ result, players, hideStandings }: { result: any; players: any[]; hideStandings: boolean }) {
+function Reveal({ result, players, hideStandings, round }: { result: any; players: any[]; hideStandings: boolean; round: number }) {
   const stats: [string, number][] = result ? Object.entries(result.stats || {}) as [string, number][] : [];
   const maxCount = Math.max(1, ...stats.map(([, n]) => n));
   const totalAnswers = stats.reduce((sum, [, n]) => sum + n, 0);
   // Everyone still in, with their previous rank and score so rows climb to their new place.
-  const board: any[] = result?.leaderboard || players.filter(p => (p.status ?? 'active') === 'active');
+  const everyone: any[] = result?.leaderboard || players.filter(p => (p.status ?? 'active') === 'active');
+  // Round 1 has the biggest field: the projector shows the top 10, phones show each player's own rank.
+  const board = round === 1 ? everyone.slice(0, 10) : everyone;
   const cut = result?.elimination;
   const pending = result?.pendingCut;
   const roundEnd = result?.roundEnd;
@@ -392,7 +400,7 @@ function Reveal({ result, players, hideStandings }: { result: any; players: any[
 
       <section style={{ flex: board.length > 10 && !hideStandings ? 1.7 : 1, display: 'flex', flexDirection: 'column', padding: '4vh 3vw', minWidth: 0, minHeight: 0 }}>
         <Rise className="eyebrow" style={{ fontSize: '0.8rem', marginBottom: '2vh' }}>
-          {hideStandings ? 'Final round' : `Standings · ${board.length} still in`}
+          {hideStandings ? 'Final round' : board.length < everyone.length ? `Top ${board.length} of ${everyone.length}` : `Standings · ${board.length} still in`}
         </Rise>
         {hideStandings ? (
           <Centered>

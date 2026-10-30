@@ -194,10 +194,15 @@ describe('levels and rounds', () => {
     engine.setQuestions([q(1, 1, { image: { mime: 'image/png', data: 'AA==' }, video: { mime: 'video/mp4', url: 'https://x/v' } })]);
     players(1);
     assert.equal(engine.getState().currentQuestion, null);
-    goLive(0);
+    engine.startGame();
+    engine.startQuestion(); // the video plays first
+    assert.equal(engine.getState().state, 'video');
+    assert.equal(engine.getState().video.url, 'https://x/v');
+    assert.equal(engine.getState().currentQuestion, null);
+    engine.startQuestion(); // then the question
     const live = engine.getState().currentQuestion;
+    assert.equal(engine.getState().video, null);
     assert.equal(live.imageUrl, '/live-image/0?g=' + engine.gameId);
-    assert.equal(live.videoUrl, 'https://x/v');
     assert.equal(engine.liveImage(0).mime, 'image/png');
     engine.state = 'leaderboard';
     assert.equal(engine.getState().currentQuestion, null);

@@ -7,6 +7,7 @@ import { Avatar, Panel, TimerRing } from '../../components/ui';
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — players joining',
   intro: 'Level briefing',
+  video: 'Video playing',
   question: 'Question live',
   leaderboard: 'Answer reveal',
   podium: 'Final results',

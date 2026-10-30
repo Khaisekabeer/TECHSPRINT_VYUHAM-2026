@@ -522,6 +522,12 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       broadcastAnswerCount();
     });
 
+    // The projector says its video has finished (or failed to play): the question goes live.
+    handle(socket, 'video_ended', (callback) => {
+      if (!socket.rooms.has('bigscreen') || gameEngine.state !== 'video') return callback({ error: 'No video is playing' });
+      hostActions.start_question(callback);
+    });
+
     // The phone reports when the quiz page is hidden/shown during a question (switching apps or
     // tabs). Logged and flagged for staff; never acted on automatically.
     handle(socket, 'screen', (callback, data) => {

@@ -627,17 +627,26 @@ textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
 .standings.crowd .st-name { font-size: clamp(0.75rem, 1vw, 1.1rem); }
 .standings.crowd .st-score { font-size: clamp(0.7rem, 0.9vw, 1rem); opacity: 0.7; }
 .st-stack { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.15; }
-/* Pack (11–30): rows in 2–3 columns. */
+.st-stack .st-score { min-width: 0; text-align: left; }
+.st-stack .st-time { min-width: 0; }
+/* Pack (11–30): rows in 2 columns. */
 .standings.pack { grid-auto-flow: column; gap: 0.9vh 1.2vw; }
 .standings.pack .st-row { padding: 0.6vh 0.9vw; gap: 0.9vw; }
 .standings.pack .st-rank { font-size: clamp(1rem, 1.6vw, 1.8rem); width: 2em; }
-.standings.pack .st-name { font-size: clamp(1rem, 1.5vw, 1.7rem); }
+.standings.pack .st-name { font-size: clamp(0.95rem, 1.2vw, 1.5rem); }
+.standings.pack .st-row .st-time { min-width: 3em; }
 .standings.pack .st-score { font-size: clamp(1rem, 1.6vw, 1.8rem); }
-/* Finalists (≤10): big character cards. */
+/* Top (6–10): one full-width list. */
+.standings.top { grid-auto-flow: column; gap: 0.8vh; }
+.standings.top .st-row { padding: 0 1.2vw; gap: 1vw; }
+.standings.top .st-rank { font-size: clamp(1.2rem, 2.2vw, 2.5rem); width: 1.7em; }
+.standings.top .st-name { font-size: clamp(1.1rem, 1.8vw, 2.1rem); }
+.standings.top .st-score { font-size: clamp(1.2rem, 2vw, 2.3rem); }
+/* Finalists (≤5): big character cards. */
 .standings.finalists { grid-auto-flow: column; gap: 1.6vh 1.6vw; }
 .standings.finalists .st-row { padding: 1.2vh 1.4vw; gap: 1.3vw; box-shadow: var(--shadow-lg); }
 .standings.finalists .st-rank { font-size: clamp(1.8rem, 3vw, 3.4rem); width: 1.6em; }
-.standings.finalists .st-name { font-size: clamp(1.4rem, 2.4vw, 2.8rem); }
+.standings.finalists .st-name { font-size: clamp(1.2rem, 1.8vw, 2.2rem); }
 .standings.finalists .st-score { font-size: clamp(1.4rem, 2.4vw, 2.8rem); }
 
 .st-row {
@@ -652,8 +661,9 @@ textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
 }
 .st-rank { font-family: var(--font-display); font-weight: 900; text-align: center; flex-shrink: 0; line-height: 1; }
 .st-name { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.st-score { font-family: var(--font-display); font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.st-time { flex-shrink: 0; font-family: var(--font-mono); font-size: 0.72em; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--bone-dim); }
+/* Fixed widths, right-aligned, so times and scores line up in columns from row to row. */
+.st-score { min-width: 2.6em; text-align: right; font-family: var(--font-display); font-weight: 800; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.st-time { min-width: 4.6em; text-align: right; flex-shrink: 0; font-family: var(--font-mono); font-size: 0.72em; font-weight: 400; font-variant-numeric: tabular-nums; color: var(--bone-dim); }
 .standings .st-row .st-time { font-size: clamp(0.65rem, 0.95vw, 1.1rem); }
 .st-row.first .st-time { color: inherit; opacity: 0.8; }
 .st-row.first { background: var(--heat); color: var(--ink-0); border-color: transparent; box-shadow: var(--shadow-lg); }

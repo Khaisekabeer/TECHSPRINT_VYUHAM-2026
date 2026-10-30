@@ -379,20 +379,72 @@ describe('secrecy during a game', () => {
     assert.equal(await get(1), 404);
   });
 
-  test('a video link appears only while its question is live', async () => {
+  test('a video plays first: no question, answers or timer until the projector says it ended', async () => {
     engine.setQuestions([q(1, 1), q(2, 1, { video: { mime: 'video/mp4', url: 'https://storage.example/signed-link' } })]);
     const h = await host();
     const p = await player('Asha');
+    const screen = await client();
+    await ask(screen, 'join_role', 'bigscreen');
     await act(h, 'start_game');
     await act(h, 'start_question');
     await act(h, 'end_question');
     await until(() => last(p, 'question_result'), 'reveal');
     assert.ok(!JSON.stringify(p.seen).includes('signed-link'));
+
     await act(h, 'start_question');
-    await until(() => last(p, 'game_state')?.currentQuestion?.videoUrl, 'video link');
+    await until(() => last(screen, 'game_state')?.state === 'video', 'video stage');
+    assert.equal(last(screen, 'game_state').video.url, 'https://storage.example/signed-link');
+    assert.ok(!JSON.stringify(screen.seen).includes('SECRET QUESTION 2'), 'question hidden during the video');
+    assert.equal((await ask(p, 'submit_answer', 'A')).error, 'Not accepting answers now');
+    assert.equal(engine.questionEndsAt, last(screen, 'game_state').questionEndsAt, 'timer untouched');
+    const startedBefore = engine.questionStartTime;
+
+    // Only a connection on the projector page can report the end.
+    assert.equal((await ask(p, 'video_ended')).error, 'No video is playing');
+    assert.equal(engine.state, 'video');
+    await new Promise(r => setTimeout(r, 30));
+    assert.equal((await ask(screen, 'video_ended')).success, true);
+    await until(() => last(p, 'game_state')?.state === 'question', 'question after the video');
+    assert.equal(last(p, 'game_state').currentQuestion.text, 'SECRET QUESTION 2');
+    assert.equal(last(p, 'game_state').video, null);
+    assert.ok(engine.questionStartTime > startedBefore, 'timer starts after the video');
+    assert.ok(engine.questionEndsAt - Date.now() > 19000, 'the full timer is left');
+    assert.equal((await ask(p, 'submit_answer', 'A')).success, true);
+    assert.equal((await ask(screen, 'video_ended')).error, 'No video is playing');
     await act(h, 'end_question');
     await until(() => last(p, 'game_state')?.state === 'leaderboard', 'reveal');
-    assert.equal(last(p, 'game_state').currentQuestion, null);
+  });
+
+  test('the host can skip a video that will not play', async () => {
+    engine.setQuestions([q(1, 1, { video: { mime: 'video/mp4', url: 'https://storage.example/broken' } })]);
+    const h = await host();
+    await player('Asha');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    assert.equal(engine.state, 'video');
+    assert.equal((await act(h, 'end_question')).error, 'No question is live');
+    await act(h, 'start_question');
+    assert.equal(engine.state, 'question');
+  });
+
+  test('the dashboard counts right, wrong and skipped; staff see everyone, a phone only itself', async () => {
+    engine.setQuestions([q(1, 1), q(2, 1)]);
+    const h = await host();
+    const a = await player('Asha');
+    const b = await player('Ben');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await ask(b, 'submit_answer', 'B');
+    await act(h, 'end_question');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'B');
+    await act(h, 'end_question');
+    await until(() => last(a, 'my_result')?.player.answers.wrong === 1, 'phone tally');
+    assert.deepEqual(last(a, 'my_result').player.answers, { correct: 1, wrong: 1, skipped: 0 });
+    await until(() => last(h, 'players_list')?.find(p => p.name === 'Ben')?.answers.skipped === 1, 'host dashboard');
+    assert.deepEqual(last(h, 'players_list').find(p => p.name === 'Ben').answers, { correct: 0, wrong: 1, skipped: 1 });
+    assert.equal(last(a, 'question_result').leaderboard[0].answers, undefined);
   });
 });
 

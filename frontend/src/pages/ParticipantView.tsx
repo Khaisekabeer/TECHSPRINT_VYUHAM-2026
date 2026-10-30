@@ -6,6 +6,8 @@ import { API_BASE } from '../lib/api';
 import confetti from 'canvas-confetti';
 
 const TOKEN_KEY = 'vyuham_player_token';
+// The player's own count of answers over the whole game.
+const tally = (a?: { correct: number; wrong: number; skipped: number }) => (a ? `${a.correct} right · ${a.wrong} wrong · ${a.skipped} skipped` : '');
 
 // localStorage can throw (private mode, blocked storage); the game still works without it.
 const storage = {
@@ -339,7 +341,7 @@ export default function ParticipantView() {
           <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>
             {disqualified
               ? (exit.note || 'The quiz host removed you from the game.')
-              : <>{String(exit.note || 'Eliminated').replace(/\.$/, '')}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.</>}
+              : <>{String(exit.note || 'Eliminated').replace(/\.$/, '')}.<br />You finished <strong>#{exit.rank}</strong> with <strong>{exit.score}</strong> points.<br />{tally(playerInfo.answers)}</>}
           </Rise>
           {!disqualified && (
             <Rise d={340} as="p" className="display" style={{ margin: '22px 0 0', fontSize: '1.6rem', letterSpacing: '0.02em' }}>
@@ -375,6 +377,19 @@ export default function ParticipantView() {
   }
 
   // ─── Question ──────────────────────────────────────────────────────────────
+  if (gameState.state === 'video') {
+    return (
+      <div className="stage stage-grid" data-level={level}>
+        <Rings size="min(170vw, 760px)" style={centerRings} />
+        <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
+          <Rise className="eyebrow eyebrow-heat">Video</Rise>
+          <h1 className="display heat slam" style={{ fontSize: 'clamp(2.6rem, 13vw, 4.4rem)', margin: '12px 0 14px' }}>Watch the big screen</h1>
+          <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>The question and timer start when the video ends.</Rise>
+        </main>
+      </div>
+    );
+  }
+
   if (gameState.state === 'question') {
     const q = gameState.currentQuestion;
     const timeUp = timeLeft <= 0;
@@ -459,6 +474,7 @@ export default function ParticipantView() {
           ) : (
             <h1 className="display" style={{ fontSize: '4rem', marginTop: 12 }}>Game over</h1>
           )}
+          {playerInfo.answers && <Rise d={500} as="p" className="dim" style={{ margin: '18px 0 0' }}>{tally(playerInfo.answers)}</Rise>}
           <Rise d={560} as="p" className="eyebrow" style={{ marginTop: 32 }}>Thanks for playing TechSprint · Vyuham '26</Rise>
         </main>
       </div>

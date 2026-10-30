@@ -200,7 +200,7 @@ If the organizer wants the exact URL `vyuham.duk.ac.in/#/techfest` to land on th
 
 **Picture questions** ("identify this person / object"): add a picture in the question editor. It is resized in the browser, stored encrypted with the question key, and served by the live game server only once that question is live, on the projector only. Phones show just the answer options.
 
-**Video questions:** add an MP4 or WebM video (up to 50 MB) in the question editor. The file is kept in the private `question-videos` storage bucket, and the question refers to it from its encrypted content. It plays on the projector only, and the link is sent only while that question is live; the link lasts 12 hours.
+**Video questions:** add an MP4 or WebM video (up to 50 MB) in the question editor. The file is kept in the private `question-videos` storage bucket, and the question refers to it from its encrypted content. It plays on the projector first: phones say "Watch the big screen", and the question, answers and timer start when it ends. If it can't play, the question starts anyway, and the host console can skip it. The link is sent only while it plays and lasts 12 hours.
 
 Each question belongs to a level and is multiple-choice (2-4 options) or true/false, a timer (5-300 s) and base points. Hidden questions stay in the bank but are left out of the game.
 

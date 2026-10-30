@@ -39,16 +39,17 @@ function CountUp({ from, to, run }: { from: number; to: number; run: boolean }) 
 
 // Everyone still in the game, on one screen. The layout follows the size of the field:
 //   crowd (31+)      dense tiles, ~10 rows, as many columns as needed (80 players → 8 × 10)
-//   pack (11–30)     rows in 2–3 columns
-//   finalists (≤10)  big character cards
+//   pack (11–30)     rows in 2 columns
+//   top (6–10)       one full-width list
+//   finalists (≤5)   big character cards
 // Each reveal first shows the previous order and scores, then every row slides to its new rank
 // while the score counts up (▲/▼ shows the change). atRisk: players below the level's cut line.
 export function Standings({ players, atRisk, style }: { players: StandingPlayer[]; atRisk?: string[] | null; style?: CSSProperties }) {
   const n = players.length;
-  const tier = n <= 10 ? 'finalists' : n <= 30 ? 'pack' : 'crowd';
-  const cols = tier === 'finalists' ? (n <= 5 ? 1 : 2) : tier === 'pack' ? (n <= 20 ? 2 : 3) : Math.min(12, Math.ceil(n / 10));
+  const tier = n <= 5 ? 'finalists' : n <= 10 ? 'top' : n <= 30 ? 'pack' : 'crowd';
+  const cols = tier === 'finalists' || tier === 'top' ? 1 : tier === 'pack' ? 2 : Math.min(12, Math.ceil(n / 10));
   const rows = Math.max(1, Math.ceil(n / cols));
-  const avatarSize = tier === 'finalists' ? 'clamp(44px, 8vh, 96px)' : tier === 'pack' ? 'clamp(28px, 4.4vh, 52px)' : 'clamp(18px, 2.8vh, 32px)';
+  const avatarSize = tier === 'finalists' ? 'clamp(44px, 8vh, 96px)' : tier === 'top' ? 'clamp(26px, 5.4vh, 60px)' : tier === 'pack' ? 'clamp(28px, 4.4vh, 52px)' : 'clamp(18px, 2.8vh, 32px)';
 
   // Old order first, then the new one.
   const changed = players.some((p, i) => p.prevRank != null && (p.prevRank !== i + 1 || (p.prevScore ?? p.score) !== p.score));

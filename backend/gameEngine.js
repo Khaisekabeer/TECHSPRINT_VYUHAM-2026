@@ -134,6 +134,7 @@ class GameEngine {
       streak: 0,
       totalResponseTime: 0,
       levelCorrect: {}, // level number -> correct answers in that level (for "min correct" cuts)
+      answers: { correct: 0, wrong: 0, skipped: 0 }, // over the whole game, for the dashboard
       status: 'active', // active | eliminated | disqualified
       exit: null,       // { reason, level, round, levelName, rank, score, note, staffId } once out
       // Indicators for staff (never decisive on their own): leaving the quiz screen during a
@@ -358,7 +359,7 @@ class GameEngine {
   // ─── Views ──────────────────────────────────────────────────────────────────
   // What a player may see about themselves.
   privateView(player) {
-    return { ...publicPlayer(player), exit: player.exit && { ...player.exit, staffId: undefined } };
+    return { ...publicPlayer(player), answers: player.answers, exit: player.exit && { ...player.exit, staffId: undefined } };
   }
 
   // What the host console and live monitor see (staff only).
@@ -432,7 +433,7 @@ class GameEngine {
 
   // Advances to the next question, showing a level intro first whenever the level changes.
   startQuestion() {
-    if (this.state !== 'intro' && this.state !== 'leaderboard') return { error: 'Cannot start a question now' };
+    if (!['intro', 'leaderboard', 'video'].includes(this.state)) return { error: 'Cannot start a question now' };
     if (this.pendingCut) return { error: 'Confirm the cut first — it is waiting below' };
     if (this.currentQuestionIndex >= this.questions.length || this.activePlayers().length === 0) {
       this.state = 'podium';
@@ -444,6 +445,13 @@ class GameEngine {
       this.currentLevel = q.level || 1;
       this.state = 'intro';
       if (this.rules.roundReset) this.resetRoundScores();
+      return { success: true };
+    }
+
+    // A video question plays its video first: no question, no answers and no timer until it ends.
+    if (q.video && this.state !== 'video') {
+      this.currentLevel = q.level || 1;
+      this.state = 'video';
       return { success: true };
     }
 
@@ -541,6 +549,7 @@ class GameEngine {
       this.closeAway(p);
       const a = this.answers[p.id];
       if (!a) p.totalResponseTime += (q.timeLimit || 20) * 1000;
+      p.answers[!a ? 'skipped' : a.isCorrect ? 'correct' : 'wrong'] += 1;
       if (a?.isCorrect) {
         p.score += a.pointsEarned;
         p.streak += 1;
@@ -633,6 +642,8 @@ class GameEngine {
       questionStartTime: this.questionStartTime,
       questionEndsAt: this.questionEndsAt,
       serverNow: Date.now(),
+      // The video of the next question, only while it is playing (the projector shows it).
+      video: this.state === 'video' ? this.currentQuestion()?.video ?? null : null,
       // Never send the correct answer while a question is live.
       currentQuestion: q ? {
         id: q.id,
@@ -644,8 +655,6 @@ class GameEngine {
         hasImage: !!q.image,
         // Where the picture is served from (the game server), only while this question is live.
         imageUrl: q.image ? `/live-image/${this.currentQuestionIndex}?g=${this.gameId}` : null,
-        // A link to the video file in storage, sent only while this question is live.
-        videoUrl: q.video ? q.video.url : null,
       } : null,
       finalLeaderboard: this.state === 'podium' ? this.getPlayersList() : null,
     };

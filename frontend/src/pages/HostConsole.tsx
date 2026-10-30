@@ -8,6 +8,7 @@ import { CAN_HOST, ROLE_LABEL, session, signOut, useStaffSession } from '../lib/
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby',
   intro: 'Level briefing',
+  video: 'Video playing',
   question: 'Question live',
   leaderboard: 'Reveal',
   podium: 'Podium',
@@ -293,6 +294,12 @@ export default function HostConsole() {
                   {pendingCut && <span className="dim" style={{ fontSize: '0.85rem' }}>Review and confirm the cut below first.</span>}
                 </>
               )}
+              {phase === 'video' && (
+                <>
+                  <button className="btn btn-ghost btn-lg" onClick={startQuestion}>Skip video · start question →</button>
+                  <span className="dim" style={{ fontSize: '0.85rem' }}>The question and timer start by themselves when the video ends on the projector.</span>
+                </>
+              )}
               {phase === 'question' && (
                 <>
                   <button className="btn btn-ghost btn-lg" onClick={endQuestion}>End now &amp; reveal</button>
@@ -374,6 +381,7 @@ export default function HostConsole() {
               </div>
             </Panel>
           )}
+          {phase !== 'lobby' && players.length > 0 && <PlayerDashboard players={players} />}
         </div>
 
         {/* Roster */}
@@ -424,6 +432,47 @@ function Panel({ children, style, bracketed }: { children: ReactNode; style?: CS
 
 // The proposed cut at the end of a level: who goes through, who is out. The coordinator can move
 // anyone across the line, then confirms; nobody is eliminated until then.
+// Every player's answers over the whole game, in rank order, plus the totals.
+function PlayerDashboard({ players }: { players: any[] }) {
+  const sum = (key: string) => players.reduce((n, p) => n + (p.answers?.[key] ?? 0), 0);
+  const STATUS: Record<string, string> = { active: 'In', eliminated: 'Out', disqualified: 'DQ' };
+  const cell: CSSProperties = { padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap' };
+  return (
+    <Panel style={{ padding: 0, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '16px 20px' }}>
+        <div className="eyebrow">Player dashboard</div>
+        <span className="mono tabular" style={{ fontSize: '0.8rem' }}>
+          <strong style={{ color: 'var(--good)' }}>{sum('correct')} right</strong> · <span style={{ color: 'var(--bad)' }}>{sum('wrong')} wrong</span> · <span className="dim">{sum('skipped')} skipped</span>
+        </span>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.86rem' }}>
+        <thead>
+          <tr className="eyebrow" style={{ borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}>
+            <th style={{ ...cell, textAlign: 'left', paddingLeft: 20 }}>#</th>
+            <th style={{ ...cell, textAlign: 'left' }}>Player</th>
+            <th style={cell}>Status</th><th style={cell}>Score</th><th style={cell}>Right</th><th style={cell}>Wrong</th><th style={cell}>Skipped</th>
+            <th style={{ ...cell, paddingRight: 20 }}>Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {players.map((p, i) => (
+            <tr key={p.id} style={{ borderBottom: '1px solid var(--line)' }}>
+              <td style={{ ...cell, textAlign: 'left', paddingLeft: 20 }} className="mono tabular">{i + 1}</td>
+              <td style={{ ...cell, textAlign: 'left', fontWeight: 600, whiteSpace: 'normal' }}>{p.name}</td>
+              <td style={cell}>{STATUS[p.status] ?? p.status}</td>
+              <td style={cell} className="mono tabular">{p.score}</td>
+              <td style={{ ...cell, color: 'var(--good)' }} className="mono tabular">{p.answers?.correct ?? 0}</td>
+              <td style={{ ...cell, color: 'var(--bad)' }} className="mono tabular">{p.answers?.wrong ?? 0}</td>
+              <td style={cell} className="mono tabular dim">{p.answers?.skipped ?? 0}</td>
+              <td style={{ ...cell, paddingRight: 20 }} className="mono tabular dim">{((p.time ?? 0) / 1000).toFixed(1)}s</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Panel>
+  );
+}
+
 function CutReview({ cut, onAdjust, onConfirm }: { cut: any; onAdjust: (id: string, keep: boolean) => void; onConfirm: () => void }) {
   const row = (p: any, keep: boolean) => (
     <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: '0.88rem' }}>
