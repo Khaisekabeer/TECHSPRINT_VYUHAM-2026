@@ -2,30 +2,31 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import '../banner.css';
 
-// The event guidelines. The scoring lines assume a 20-second timer, 1,000 points, the bonuses and
-// multipliers off and the round reset on, all set in the question bank and the host console.
+// The event guidelines. The scoring lines assume 1,000 points, the bonuses and multipliers off and
+// the round reset on; the cuts are set on each level in the question bank.
 const RULES = [
-  { title: 'Speed matters', text: 'Faster correct answers earn more points, so answer as quickly as possible.' },
-  { title: 'Scoring', text: 'Each question starts with a maximum of 1,000 points. 25 points are deducted for every second elapsed, making speed crucial.' },
-  { title: 'Time limit', text: 'Every question has a 20-second countdown. Answers must be submitted before the timer expires.' },
-  { title: 'Question display', text: 'Questions will appear on the big screen, while answers must be submitted through your phone.' },
-  { title: 'One answer only', text: 'You can select only one answer per question. Once an option is selected, it is final and cannot be changed.' },
-  { title: 'Automatic closure', text: 'Answer submissions will close automatically when the timer runs out. Unanswered questions receive zero points.' },
+  { title: 'Speed matters', text: 'Faster correct answers earn more points, so every second counts.' },
+  { title: 'Scoring', text: 'Each question starts with a maximum of 1,000 points, with 25 points deducted for every second elapsed.' },
+  { title: 'Time limit', text: 'Each question in the first round has a 20-second countdown.' },
+  { title: 'Question display', text: 'Questions appear on the big screen, while answers must be submitted through your phone.' },
+  { title: 'One answer only', text: 'You can select only one answer per question. Once an option is selected, it cannot be changed.' },
+  { title: 'Automatic closure', text: 'Answer submissions close automatically when the timer expires. Incorrect or unanswered questions receive zero points.' },
   { title: 'Round reset', text: 'Every participant starts each round with zero points.' },
-  { title: 'Elimination', text: 'After each round, the bottom 40% of participants are eliminated. The top 60% advance to the next round.' },
-  { title: 'Final round', text: 'There will be no elimination in the final round. The highest-scoring participant will be crowned the champion.' },
-  { title: 'Tie-breaker', text: 'If participants finish with equal points, the participant with the lower total answer time will secure the higher rank.' },
+  { title: 'Round 1 to Round 2', text: 'The top 70% of participants advance to the second round. The remaining participants are eliminated.' },
+  { title: 'Round 2 to Final', text: 'The top 60% of participants advance to the final round. The remaining participants are eliminated.' },
+  { title: 'Final round', text: 'There will be no further elimination. The highest-scoring participant will be crowned the champion.' },
+  { title: 'Tie-breaker', text: 'If participants have equal scores, the participant with the lower total answer time secures the higher rank.' },
   { title: 'Entry', text: 'Join using the Ticket ID printed on your pass. Only one phone is permitted per ticket.' },
   { title: 'Stay on screen', text: 'Participants must remain on the quiz screen throughout each question. Leaving the screen will be logged.' },
   { title: 'Fair play', text: 'All participants must play individually. The use of additional devices, outside assistance, or collaboration is strictly prohibited.' },
   { title: 'Disqualification', text: 'Any violation of the quiz rules may result in disqualification.' },
-  { title: 'Final authority', text: "The coordinator's decision will be final and binding in all matters related to the quiz." },
+  { title: "Quizmaster's Authority", text: "The Quizmaster has the final authority in all matters related to the quiz, including scoring, tie-breakers, rule violations, disputes, and disqualification. The Quizmaster's decision shall be final and binding." },
 ];
 
-// Fifteen guideline highlights at 3s each, plus time for the slide to arrive.
+// Sixteen guideline highlights at 3s each, plus time for the slide to arrive.
 const SLIDES = [
   { Poster: EventPoster, seconds: 12 },
-  { Poster: RulesPoster, seconds: 49 },
+  { Poster: RulesPoster, seconds: 52 },
 ];
 
 // The portal's <Brand />: logo, name, and the festival tag.
@@ -76,8 +77,8 @@ function RulesPoster({ live = false }: { live?: boolean }) {
     <div className={`poster poster-rules${live ? ' live' : ''}`}>
       <div className="poster-head">
         <div>
-          <p className="poster-eyebrow">Tech Sprint · Vyuham '26</p>
-          <h2>Guidelines</h2>
+          <p className="poster-eyebrow">Tech Sprint · Vyuham '26 · Oct 31, 2026 · 02 PM to 05 PM</p>
+          <h2>Final Quiz Guidelines</h2>
           <p className="poster-lead">It's TechSprint. Speed matters. Every second counts!</p>
         </div>
         <div className="poster-head-side">
@@ -99,7 +100,7 @@ function RulesPoster({ live = false }: { live?: boolean }) {
       </ol>
 
       <div className="poster-foot">
-        <span className="poster-eyebrow">Oct 31, 2026 · 02 PM to 05 PM</span>
+        <span className="poster-closing">All the best to all participants! Think fast, play smart, and may the sharpest mind win!</span>
         <div className="poster-prize-badge">
           <span className="poster-eyebrow">Prize pool</span>
           <b>₹10,000/-</b>
