@@ -12,7 +12,7 @@ const RULES = [
   { title: 'One answer only', text: 'You can select only one answer per question. Once an option is selected, it is final and cannot be changed.' },
   { title: 'Automatic closure', text: 'Answer submissions will close automatically when the timer runs out. Unanswered questions receive zero points.' },
   { title: 'Round reset', text: 'Every participant starts each round with zero points.' },
-  { title: 'Elimination', text: 'Only the top-performing participants advance to the next round. The remaining participants will be eliminated.' },
+  { title: 'Elimination', text: 'After each round, the bottom 40% of participants are eliminated. The top 60% advance to the next round.' },
   { title: 'Final round', text: 'There will be no elimination in the final round. The highest-scoring participant will be crowned the champion.' },
   { title: 'Tie-breaker', text: 'If participants finish with equal points, the participant with the lower total answer time will secure the higher rank.' },
   { title: 'Entry', text: 'Join using the Ticket ID printed on your pass. Only one phone is permitted per ticket.' },
@@ -39,6 +39,11 @@ function Brand() {
   );
 }
 
+// The join page. A full page load, because the banner sits outside the socket provider.
+function GameLink() {
+  return <a className="poster-link" href={import.meta.env.BASE_URL}>Go to game →</a>;
+}
+
 function EventPoster({ live = false }: { live?: boolean }) {
   return (
     <div className={`poster poster-event${live ? ' live' : ''}`}>
@@ -46,6 +51,7 @@ function EventPoster({ live = false }: { live?: boolean }) {
 
       <div className="poster-top">
         <Brand />
+        <GameLink />
       </div>
 
       <div className="poster-title poster-title-center">
@@ -74,7 +80,10 @@ function RulesPoster({ live = false }: { live?: boolean }) {
           <h2>Guidelines</h2>
           <p className="poster-lead">It's TechSprint. Speed matters. Every second counts!</p>
         </div>
-        <Brand />
+        <div className="poster-head-side">
+          <Brand />
+          <GameLink />
+        </div>
       </div>
 
       <ol className="poster-list">
