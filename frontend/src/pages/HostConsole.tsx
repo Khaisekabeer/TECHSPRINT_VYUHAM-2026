@@ -494,7 +494,8 @@ function PlayerDashboard({ players }: { players: any[] }) {
             <th style={{ ...cell, textAlign: 'left', paddingLeft: 20 }}>#</th>
             <th style={{ ...cell, textAlign: 'left' }}>Player</th>
             <th style={cell}>Status</th><th style={cell}>Score</th><th style={cell}>Right</th><th style={cell}>Wrong</th><th style={cell}>Skipped</th>
-            <th style={{ ...cell, paddingRight: 20 }}>Time</th>
+            <th style={cell}>Last question</th>
+            <th style={{ ...cell, paddingRight: 20 }}>Total time</th>
           </tr>
         </thead>
         <tbody>
@@ -507,6 +508,7 @@ function PlayerDashboard({ players }: { players: any[] }) {
               <td style={{ ...cell, color: 'var(--good)' }} className="mono tabular">{p.answers?.correct ?? 0}</td>
               <td style={{ ...cell, color: 'var(--bad)' }} className="mono tabular">{p.answers?.wrong ?? 0}</td>
               <td style={cell} className="mono tabular dim">{p.answers?.skipped ?? 0}</td>
+              <td style={cell} className="mono tabular">{((p.lastTime ?? 0) / 1000).toFixed(1)}s</td>
               <td style={{ ...cell, paddingRight: 20 }} className="mono tabular dim">{((p.time ?? 0) / 1000).toFixed(1)}s</td>
             </tr>
           ))}

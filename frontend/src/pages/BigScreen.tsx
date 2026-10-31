@@ -279,7 +279,7 @@ function FitText({ fitKey, children, style }: { fitKey: unknown; children: React
   }, [fitKey]);
 
   return (
-    <div ref={box} style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', overflow: 'hidden' }}>
+    <div ref={box} style={{ flex: '1 1 0', minWidth: 0, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
       <h2 ref={inner} key={String(fitKey)} className="rise" style={{ margin: 'auto', width: '100%', fontWeight: 600, lineHeight: 1.18, letterSpacing: '-0.02em', ...style }}>
         {children}
       </h2>
@@ -320,38 +320,37 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
         <TimerRing value={timeLeft} max={maxTime} size={128} stroke={6} />
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: '2.5vw', paddingTop: '2vh' }}>
-        {/* A picture takes one side, as big as it can be; the question and options take the other. */}
-        {hasPicture && (
-          <div style={{ flex: '1.25 1 0', minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ width: '100%', height: '100%', margin: 0 }} />
-          </div>
-        )}
-
-        <div style={{ flex: '1 1 0', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '2vh' }}>
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '2vh', paddingTop: '2vh' }}>
+        {/* A picture sits left of the question; the options stay full width below, as on every question. */}
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: '2.5vw' }}>
+          {hasPicture && (
+            <div style={{ flex: '1 1 0', minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ width: '100%', height: '100%', margin: 0 }} />
+            </div>
+          )}
           <FitText fitKey={q?.id} style={{
             maxWidth: 1400, textAlign: hasPicture ? 'left' : 'center', textWrap: 'balance',
             fontSize: `calc(var(--fit, 1) * ${hasPicture ? 'clamp(1.6rem, 2.6vw, 3.2rem)' : 'clamp(2rem, 3.6vw, 4.4rem)'})`,
           }}>
             <QuestionText text={q?.text ?? ''} />
           </FitText>
+        </div>
 
-          <div style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: hasPicture ? '1fr' : '1fr 1fr', gap: '1.6vh 1.4vw' }}>
-            {q?.options?.map((opt: string, idx: number) => (
-              <div key={idx} data-opt={idx} className="pop" style={{
-                ['--d' as string]: `${200 + idx * 90}ms`,
-                display: 'flex', alignItems: 'stretch', minHeight: hasPicture ? '8.5vh' : '11vh', minWidth: 0, overflow: 'hidden',
-                background: 'var(--ink-0)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-md)',
-                borderLeft: '0',
-              }}>
-                <span className="display" style={{
-                  width: '5.5vw', minWidth: 72, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'clamp(2.4rem, 3.4vw, 4rem)',
-                }}>{OPTION_LABELS[idx]}</span>
-                <span style={{ display: 'flex', alignItems: 'center', minWidth: 0, padding: '0.6vh 1.8vw', fontSize: optionSize, fontWeight: 600, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{opt}</span>
-              </div>
-            ))}
-          </div>
+        <div style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.6vh 1.4vw' }}>
+          {q?.options?.map((opt: string, idx: number) => (
+            <div key={idx} data-opt={idx} className="pop" style={{
+              ['--d' as string]: `${200 + idx * 90}ms`,
+              display: 'flex', alignItems: 'stretch', minHeight: '11vh', minWidth: 0, overflow: 'hidden',
+              background: 'var(--ink-0)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-md)',
+              borderLeft: '0',
+            }}>
+              <span className="display" style={{
+                width: '5.5vw', minWidth: 72, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'clamp(2.4rem, 3.4vw, 4rem)',
+              }}>{OPTION_LABELS[idx]}</span>
+              <span style={{ display: 'flex', alignItems: 'center', minWidth: 0, padding: '0.6vh 1.8vw', fontSize: optionSize, fontWeight: 600, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{opt}</span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
