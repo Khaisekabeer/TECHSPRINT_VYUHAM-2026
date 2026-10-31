@@ -62,7 +62,7 @@ export default function ParticipantView() {
   const [standing, setStanding] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [rejoining, setRejoining] = useState(() => !mock && !!storage.get());
-  const questionIndexRef = useRef<number | null>(null);
+  const questionIdRef = useRef<number | null>(null);
 
   const timeLeft = useCountdown(
     gameState?.state === 'question' ? gameState.questionEndsAt : null,
@@ -75,8 +75,8 @@ export default function ParticipantView() {
   const applyState = (state: any) => {
     setGameState(state);
     if (state.state !== 'leaderboard') setRoundEnd(null);
-    if (state.state === 'question' && state.currentQuestionIndex !== questionIndexRef.current) {
-      questionIndexRef.current = state.currentQuestionIndex;
+    if (state.state === 'question' && state.currentQuestion?.id !== questionIdRef.current) {
+      questionIdRef.current = state.currentQuestion?.id ?? null;
       setSelectedOption(null);
       setAnswerResult(null);
       setMessage('');
@@ -89,7 +89,7 @@ export default function ParticipantView() {
     setGameState(null);
     setAnswerResult(null);
     setSelectedOption(null);
-    questionIndexRef.current = null;
+    questionIdRef.current = null;
     setMessage(reason);
   };
 
@@ -161,7 +161,7 @@ export default function ParticipantView() {
         return;
       }
       setPlayerInfo(res.player);
-      questionIndexRef.current = res.gameState.currentQuestionIndex;
+      questionIdRef.current = res.gameState.currentQuestion?.id ?? null;
       setGameState(res.gameState);
       setSelectedOption(res.myAnswer?.answer ?? null);
       setAnswerResult(res.myAnswer);
@@ -384,7 +384,7 @@ export default function ParticipantView() {
         <main style={{ ...screenPad, flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center' }}>
           <Rise className="eyebrow eyebrow-heat">Video</Rise>
           <h1 className="display heat slam" style={{ fontSize: 'clamp(2.6rem, 13vw, 4.4rem)', margin: '12px 0 14px' }}>Watch the big screen</h1>
-          <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>The question and timer start when the video ends.</Rise>
+          <Rise d={250} as="p" className="dim" style={{ margin: 0, lineHeight: 1.6 }}>The question and timer start after the video.</Rise>
         </main>
       </div>
     );
@@ -485,8 +485,9 @@ export default function ParticipantView() {
   if (gameState.state === 'leaderboard') {
     const isCorrect = answerResult?.isCorrect;
     const notAnswered = !answerResult;
+    const cancelled = !!gameState.cancelled;
     const tone = notAnswered ? 'var(--bone-dim)' : isCorrect ? 'var(--good)' : 'var(--bad)';
-    const headline = notAnswered ? 'Too slow' : isCorrect ? 'Correct' : 'Wrong';
+    const headline = cancelled ? 'Cancelled' : notAnswered ? 'Too slow' : isCorrect ? 'Correct' : 'Wrong';
     return (
       <div className="stage" data-level={level} style={{ ['--heat' as string]: tone }}>
         <Rings size="min(170vw, 760px)" style={{ ...centerRings, top: '42%' }} />
@@ -507,7 +508,7 @@ export default function ParticipantView() {
           )}
 
           <div className="display heat pop" style={{ fontSize: '5.5rem', lineHeight: 1 }} aria-hidden="true">
-            {notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
+            {cancelled ? '–' : notAnswered ? '⧗' : isCorrect ? '✓' : '✕'}
           </div>
           <h1 className="display heat slam" style={{ fontSize: 'clamp(4rem, 22vw, 6.5rem)', margin: '8px 0 10px', ['--d' as string]: '80ms' }}>{headline}</h1>
 
@@ -515,7 +516,7 @@ export default function ParticipantView() {
             <Rise d={250} className="display tabular" style={{ fontSize: '2.6rem' }}>+{answerResult.points}</Rise>
           ) : (
             <Rise d={250} as="p" className="dim" style={{ margin: 0 }}>
-              {notAnswered ? "You didn't answer in time." : `0 points for this question.${gameState.rules?.streak === false ? '' : ' Streak reset.'}`}
+              {cancelled ? 'This question was cancelled. It does not count for anyone.' : notAnswered ? "You didn't answer in time." : `0 points for this question.${gameState.rules?.streak === false ? '' : ' Streak reset.'}`}
             </Rise>
           )}
 

@@ -1,11 +1,12 @@
-import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 import confetti from 'canvas-confetti';
 import { useSocket } from '../contexts/SocketContext';
 import { useCountdown } from '../hooks/useCountdown';
 import { Avatar, Brand, QrCode, Rings, Rise, TimerRing, OPTION_LABELS } from '../components/ui';
 import { Standings } from '../components/Standings';
 import QuestionPicture from '../components/QuestionPicture';
-import QuestionVideo from '../components/QuestionVideo';
+import QuestionVideo, { type VideoCommand } from '../components/QuestionVideo';
+import QuestionText from '../components/QuestionText';
 
 const PHASE_LABEL: Record<string, string> = {
   lobby: 'Lobby — join now',
@@ -75,6 +76,7 @@ export default function BigScreen() {
   const [questionResult, setQuestionResult] = useState<any>(mock?.questionResult || null);
   const [answerCount, setAnswerCount] = useState({ answered: 0, total: 0 });
   const [serverInfo, setServerInfo] = useState<{ lanAddresses: string[] } | null>(null);
+  const [videoCommand, setVideoCommand] = useState<VideoCommand | null>(null);
 
   const timeLeft = useCountdown(
     gameState?.state === 'question' ? gameState.questionEndsAt : null,
@@ -88,11 +90,13 @@ export default function BigScreen() {
     socket.on('game_state', (state) => {
       setGameState(state);
       if (state.state === 'question') setQuestionResult(null);
+      if (state.state !== 'video') setVideoCommand(null);
     });
     socket.on('players_list', setPlayers);
     socket.on('answer_count', setAnswerCount);
     socket.on('server_info', setServerInfo);
     socket.on('question_result', setQuestionResult);
+    socket.on('video_control', setVideoCommand);
     // The coordinator confirmed the end-of-round cut: show who went out, then only the survivors.
     socket.on('cut_result', (data: any) => setQuestionResult((prev: any) => ({
       ...prev, leaderboard: data.leaderboard, elimination: data.elimination, pendingCut: null, atRisk: [],
@@ -106,6 +110,7 @@ export default function BigScreen() {
       socket.off('answer_count');
       socket.off('server_info');
       socket.off('question_result');
+      socket.off('video_control');
       socket.off('cut_result');
     };
   }, [socket, isConnected]);
@@ -147,7 +152,7 @@ export default function BigScreen() {
         {phase === 'intro' && <Intro level={level} config={gameState.levelConfig} rules={gameState.rules} />}
         {phase === 'video' && gameState.video && (
           <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', justifyContent: 'center', padding: '3vh 4vw' }}>
-            <QuestionVideo key={gameState.video.url} src={gameState.video.url} maxHeight="100%" onDone={() => socket.emit('video_ended')}
+            <QuestionVideo key={gameState.video.url} src={gameState.video.url} maxHeight="100%" command={videoCommand} onStatus={status => socket.emit('video_status', status)}
               style={{ width: 'auto', height: '100%', maxWidth: '100%', margin: 0 }} />
           </div>
         )}
@@ -246,11 +251,52 @@ function Intro({ level, config, rules }: { level: number; config: any; rules: an
 }
 
 // ─── Question ─────────────────────────────────────────────────────────────────
+// Shrinks the text until it fits the space it has, so a long question never pushes the options
+// off the projector. Anything sized in em inside it, like code, shrinks with it.
+function FitText({ fitKey, children, style }: { fitKey: unknown; children: ReactNode; style: CSSProperties }) {
+  const box = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLHeadingElement>(null);
+
+  useLayoutEffect(() => {
+    const outer = box.current;
+    const text = inner.current;
+    if (!outer || !text) return;
+    const tooBig = () => text.offsetHeight > outer.clientHeight
+      || [...text.querySelectorAll('pre')].some(pre => pre.scrollWidth > pre.clientWidth);
+    const fit = () => {
+      let scale = 1;
+      text.style.setProperty('--fit', '1');
+      while (scale > 0.2 && tooBig()) {
+        scale -= 0.04;
+        text.style.setProperty('--fit', String(scale));
+      }
+    };
+    fit();
+    document.fonts?.ready.then(fit);
+    const watcher = new ResizeObserver(fit);
+    watcher.observe(outer);
+    return () => watcher.disconnect();
+  }, [fitKey]);
+
+  return (
+    <div ref={box} style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', overflow: 'hidden' }}>
+      <h2 ref={inner} key={String(fitKey)} className="rise" style={{ margin: 'auto', width: '100%', fontWeight: 600, lineHeight: 1.18, letterSpacing: '-0.02em', ...style }}>
+        {children}
+      </h2>
+    </div>
+  );
+}
+
+const longest = (texts: string[] = []) => Math.max(0, ...texts.map(t => t.length));
+
 function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
   gameState: any; timeLeft: number; maxTime: number; answerCount: { answered: number; total: number }; level: number;
 }) {
   const q = gameState.currentQuestion;
   const pct = answerCount.total ? (answerCount.answered / answerCount.total) * 100 : 0;
+  const hasPicture = !!q?.imageUrl;
+  const widest = longest(q?.options);
+  const optionSize = widest > 70 ? 'clamp(0.95rem, 1.3vw, 1.6rem)' : widest > 34 ? 'clamp(1.1rem, 1.6vw, 2rem)' : 'clamp(1.3rem, 2vw, 2.4rem)';
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '3.5vh 4vw 4vh', minWidth: 0, minHeight: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '2.5vw' }}>
@@ -274,36 +320,39 @@ function Question({ gameState, timeLeft, maxTime, answerCount, level }: {
         <TimerRing value={timeLeft} max={maxTime} size={128} stroke={6} />
       </div>
 
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '2vh', padding: '2vh 2vw' }}>
-        <h2 key={q?.id} className="rise" style={{
-          margin: 0, maxWidth: 1400, textAlign: 'center', fontWeight: 600,
-          fontSize: 'clamp(2rem, 3.6vw, 4.4rem)', lineHeight: 1.18, letterSpacing: '-0.02em', textWrap: 'balance',
-        }}>
-          {q?.text}
-        </h2>
-        {/* The picture takes the space that is left, so the options always stay on screen. */}
-        {q?.imageUrl && (
-          <div style={{ flex: 1, minHeight: 0, width: '100%', display: 'flex', justifyContent: 'center' }}>
-            <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ height: '100%', margin: 0 }} />
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: '2.5vw', paddingTop: '2vh' }}>
+        {/* A picture takes one side, as big as it can be; the question and options take the other. */}
+        {hasPicture && (
+          <div style={{ flex: '1.25 1 0', minWidth: 0, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <QuestionPicture path={q.imageUrl} maxHeight="100%" style={{ width: '100%', height: '100%', margin: 0 }} />
           </div>
         )}
-      </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.6vh 1.4vw' }}>
-        {q?.options?.map((opt: string, idx: number) => (
-          <div key={idx} data-opt={idx} className="pop" style={{
-            ['--d' as string]: `${200 + idx * 90}ms`,
-            display: 'flex', alignItems: 'stretch', minHeight: '11vh', overflow: 'hidden',
-            background: 'var(--ink-0)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-md)',
-            borderLeft: '0',
+        <div style={{ flex: '1 1 0', minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: '2vh' }}>
+          <FitText fitKey={q?.id} style={{
+            maxWidth: 1400, textAlign: hasPicture ? 'left' : 'center', textWrap: 'balance',
+            fontSize: `calc(var(--fit, 1) * ${hasPicture ? 'clamp(1.6rem, 2.6vw, 3.2rem)' : 'clamp(2rem, 3.6vw, 4.4rem)'})`,
           }}>
-            <span className="display" style={{
-              width: '5.5vw', minWidth: 72, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'clamp(2.4rem, 3.4vw, 4rem)',
-            }}>{OPTION_LABELS[idx]}</span>
-            <span style={{ display: 'flex', alignItems: 'center', padding: '0 1.8vw', fontSize: 'clamp(1.3rem, 2vw, 2.4rem)', fontWeight: 600 }}>{opt}</span>
+            <QuestionText text={q?.text ?? ''} />
+          </FitText>
+
+          <div style={{ flexShrink: 0, display: 'grid', gridTemplateColumns: hasPicture ? '1fr' : '1fr 1fr', gap: '1.6vh 1.4vw' }}>
+            {q?.options?.map((opt: string, idx: number) => (
+              <div key={idx} data-opt={idx} className="pop" style={{
+                ['--d' as string]: `${200 + idx * 90}ms`,
+                display: 'flex', alignItems: 'stretch', minHeight: hasPicture ? '8.5vh' : '11vh', minWidth: 0, overflow: 'hidden',
+                background: 'var(--ink-0)', border: '1px solid var(--line-strong)', borderRadius: 'var(--radius)', boxShadow: 'var(--shadow-md)',
+                borderLeft: '0',
+              }}>
+                <span className="display" style={{
+                  width: '5.5vw', minWidth: 72, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'clamp(2.4rem, 3.4vw, 4rem)',
+                }}>{OPTION_LABELS[idx]}</span>
+                <span style={{ display: 'flex', alignItems: 'center', minWidth: 0, padding: '0.6vh 1.8vw', fontSize: optionSize, fontWeight: 600, lineHeight: 1.2, overflowWrap: 'anywhere' }}>{opt}</span>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </div>
   );
@@ -323,30 +372,47 @@ function Reveal({ result, players, hideStandings, round }: { result: any; player
   const roundEnd = result?.roundEnd;
   // Before this level's cut, show who is below the line; once it is confirmed, only survivors remain.
   const atRisk: string[] = cut ? [] : result?.atRisk ?? [];
+  const answer = String(result?.correctAnswer ?? '—');
+  const answerSize = answer.length > 40 ? 'clamp(1.5rem, 2.3vw, 2.8rem)' : answer.length > 16 ? 'clamp(2.2rem, 3.6vw, 4.4rem)' : 'clamp(3rem, 5.5vw, 6.5rem)';
 
   return (
     <>
-      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '4vh 3vw', borderRight: '1px solid var(--line)', minWidth: 0 }}>
-        <Rise className="eyebrow" style={{ fontSize: '0.8rem' }}>The answer</Rise>
-        <Rise d={80} as="h2" className="display slam" style={{ fontSize: 'clamp(3rem, 5.5vw, 6.5rem)', color: 'var(--good)', margin: '1.5vh 0 4vh', overflowWrap: 'anywhere' }}>
-          {result?.correctAnswer ?? '—'}
-        </Rise>
+      <section style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '2.5vh 3vw', borderRight: '1px solid var(--line)', minWidth: 0, minHeight: 0 }}>
+        {result?.cancelled ? (
+          <>
+            <Rise className="eyebrow" style={{ fontSize: '0.8rem' }}>This question</Rise>
+            <Rise d={80} as="h2" className="display slam" style={{ fontSize: 'clamp(3rem, 5.5vw, 6.5rem)', margin: '1.5vh 0 1vh' }}>Cancelled</Rise>
+            <Rise d={200} as="p" className="dim" style={{ margin: 0, fontSize: 'clamp(1rem, 1.5vw, 1.6rem)' }}>No points, and no one is affected.</Rise>
+          </>
+        ) : (
+          <>
+            <Rise className="eyebrow" style={{ fontSize: '0.8rem' }}>The answer</Rise>
+            <Rise d={80} as="h2" className="display slam" style={{ fontSize: answerSize, color: 'var(--good)', margin: '1.5vh 0 0', overflowWrap: 'anywhere' }}>
+              {answer}
+            </Rise>
+            {result?.note && (
+              <Rise d={200} as="p" style={{ margin: '1.2vh 0 0', fontSize: 'clamp(0.95rem, 1.35vw, 1.6rem)', lineHeight: 1.35, color: 'var(--bone-dim)', overflowWrap: 'anywhere' }}>
+                {result.note}
+              </Rise>
+            )}
+          </>
+        )}
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.6vh' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1vh', marginTop: stats.length ? '2vh' : 0 }}>
           {stats.map(([option, count], idx) => {
             const correct = option === result.correctAnswer;
             return (
               <div key={option} data-opt={idx} className="rise" style={{ ['--d' as string]: `${200 + idx * 100}ms`, display: 'flex', alignItems: 'center', gap: 16, opacity: correct ? 1 : 0.45 }}>
                 <span className="display" style={{
-                  width: 52, height: 52, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: 'var(--opt)', color: 'var(--on-opt)', fontSize: '2rem', borderRadius: 4,
+                  width: 'min(52px, 6.2vh)', height: 'min(52px, 6.2vh)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--opt)', color: 'var(--on-opt)', fontSize: 'min(2rem, 4.2vh)', borderRadius: 4,
                 }}>{correct ? '✓' : OPTION_LABELS[idx]}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: 8, fontSize: '1.15rem', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, marginBottom: '0.6vh', fontSize: 'min(1.15rem, 2.6vh)', fontWeight: 600 }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{option}</span>
                     <span className="mono tabular">{count}</span>
                   </div>
-                  <div style={{ height: 10, background: 'var(--line)', borderRadius: 2, overflow: 'hidden' }}>
+                  <div style={{ height: 'min(10px, 1.2vh)', background: 'var(--line)', borderRadius: 2, overflow: 'hidden' }}>
                     <div style={{
                       width: `${(count / maxCount) * 100}%`, height: '100%', background: 'var(--opt)',
                       transformOrigin: 'left', animation: `grow-x 0.9s var(--ease-out) ${300 + idx * 100}ms backwards`,
@@ -358,8 +424,8 @@ function Reveal({ result, players, hideStandings, round }: { result: any; player
           })}
         </div>
 
-        <div style={{ display: 'flex', gap: 16, marginTop: '4vh', flexWrap: 'wrap' }}>
-          {result && <Rise d={700}><span className="chip" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>{totalAnswers} answered</span></Rise>}
+        <div style={{ display: 'flex', gap: 16, marginTop: '2vh', flexWrap: 'wrap' }}>
+          {result && !result.cancelled && <Rise d={700}><span className="chip" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>{totalAnswers} answered</span></Rise>}
           {result?.speedStar && (
             <Rise d={800}><span className="chip chip-gold" style={{ fontSize: '0.8rem', padding: '10px 16px' }}>⚡ Fastest correct · {result.speedStar}</span></Rise>
           )}
@@ -367,31 +433,22 @@ function Reveal({ result, players, hideStandings, round }: { result: any; player
 
         {/* End of a round: the cut is being decided, who went out, or everyone goes through. */}
         {pending && !cut && (
-          <Rise d={900} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
+          <Rise d={900} className="panel bracketed" style={{ marginTop: '2vh', padding: '1.5vh 1.6vw' }}>
             <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>Round {roundEnd?.round} complete · {roundEnd?.levelName}</div>
             <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>The cut is coming…</div>
             <div className="dim" style={{ fontSize: '1.1rem', marginTop: 4 }}>{pending.label} · {pending.out} below the line</div>
           </Rise>
         )}
         {cut && (
-          <Rise d={300} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
+          <Rise d={300} className="panel bracketed" style={{ marginTop: '2vh', padding: '1.5vh 1.6vw' }}>
             <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>Round {cut.round} complete · {cut.levelName}</div>
             <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>
               {cut.eliminated.length > 0 ? `${cut.advanced} go through · ${cut.eliminated.length} eliminated` : 'Everyone goes through!'}
             </div>
-            {cut.eliminated.length > 0 && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: '1.4vh', maxHeight: '18vh', overflow: 'hidden' }}>
-                {cut.eliminated.map((p: any, i: number) => (
-                  <span key={p.id} className="chip pop" style={{ ['--d' as string]: `${500 + i * 60}ms`, gap: 8, padding: '4px 12px 4px 4px', textTransform: 'none', fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: '0.85rem' }}>
-                    <Avatar id={p.avatar} size={26} style={{ filter: 'grayscale(1)' }} />{p.name}
-                  </span>
-                ))}
-              </div>
-            )}
           </Rise>
         )}
         {roundEnd && !pending && !cut && !roundEnd.isFinal && (
-          <Rise d={900} className="panel bracketed" style={{ marginTop: '3vh', padding: '2vh 1.6vw' }}>
+          <Rise d={900} className="panel bracketed" style={{ marginTop: '2vh', padding: '1.5vh 1.6vw' }}>
             <div className="eyebrow eyebrow-heat" style={{ fontSize: '0.8rem' }}>Round {roundEnd.round} complete · {roundEnd.levelName}</div>
             <div className="display" style={{ fontSize: 'clamp(1.8rem, 2.6vw, 3rem)', marginTop: 6 }}>On to round {roundEnd.round + 1}!</div>
           </Rise>

@@ -126,8 +126,8 @@ async function openBankKey(bank, pin) {
 
 // ─── Question payloads ────────────────────────────────────────────────────────
 // The picture and video references live inside the encrypted content too (see questionKeys.decryptRow).
-function encryptQuestion(dek, { text, options, correctAnswer, imageId = null, videoId = null, note = '' }) {
-  return seal(dek, Buffer.from(JSON.stringify({ text, options, correctAnswer, imageId, videoId, note })), 'techsprint:question');
+function encryptQuestion(dek, { text, options, correctAnswer, imageId = null, videoId = null, note = '', backup = false }) {
+  return seal(dek, Buffer.from(JSON.stringify({ text, options, correctAnswer, imageId, videoId, note, backup })), 'techsprint:question');
 }
 
 function decryptQuestion(dek, payload) {

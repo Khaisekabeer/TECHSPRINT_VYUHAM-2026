@@ -358,9 +358,9 @@ describe('scoring rules (coordinator options)', () => {
 describe('question vault', () => {
   test('question content round-trips, including the picture and video references', () => {
     const dek = vault.newDek();
-    const payload = vault.encryptQuestion(dek, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1', note: 'Because.' });
+    const payload = vault.encryptQuestion(dek, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1', note: 'Because.', backup: true });
     const back = vault.decryptQuestion(dek, payload);
-    assert.deepEqual(back, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1', note: 'Because.' });
+    assert.deepEqual(back, { text: 'Who?', options: ['A', 'B'], correctAnswer: 'A', imageId: 'img-1', videoId: 'vid-1', note: 'Because.', backup: true });
   });
 
   test('a question saved without media decrypts with null references', () => {

@@ -19,7 +19,7 @@ const DEFAULT_RULES = {
 
 // What other clients may see about a player (never the rejoin token or ticket).
 function publicPlayer(p) {
-  return { id: p.id, name: p.name, avatar: p.avatar, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status, time: p.totalResponseTime };
+  return { id: p.id, name: p.name, avatar: p.avatar, team: p.team, score: p.score, streak: p.streak, connected: p.connected, status: p.status, time: p.totalResponseTime, lastTime: p.lastResponseTime };
 }
 
 // Standings: higher score first; on a tie, less total answer time (a skipped question counts as
@@ -40,7 +40,7 @@ function cutLabel({ rule, value }) {
 
 class GameEngine {
   constructor() {
-    this.questions = [];
+    this.loaded = [];
     // Coordinator's choice, kept across resets: hide the standings during the last round so the
     // winner is only revealed at the final results.
     this.hideFinalStandings = false;
@@ -50,6 +50,7 @@ class GameEngine {
   }
 
   reset() {
+    this.setQuestions(this.loaded); // backups swapped into the last game go back on the shelf
     this.gameId = randomUUID(); // games.id in Supabase
     this.state = 'lobby'; // lobby, intro, question, leaderboard, podium
     // participantId -> player (see addPlayer)
@@ -67,8 +68,32 @@ class GameEngine {
     this.pendingCut = null;
   }
 
+  // Backup questions are held apart: they are played only when the host swaps one in.
   setQuestions(questions) {
-    this.questions = questions;
+    this.loaded = questions;
+    this.questions = questions.filter(q => !q.backup);
+    this.backups = questions.filter(q => q.backup);
+    this.backupsUsed = new Set();
+  }
+
+  // For the host console only: the text, never the answer.
+  backupList() {
+    return this.backups.map(q => ({ id: q.id, text: q.text, used: this.backupsUsed.has(q.id) }));
+  }
+
+  // Replaces the cancelled question with a backup in the same round, and starts it.
+  useBackup(id) {
+    if (this.state !== 'leaderboard' || !this.lastResult?.backupAllowed) return { error: 'A backup can replace a cancelled question only' };
+    const backup = this.backups.find(q => q.id === id && !this.backupsUsed.has(q.id));
+    if (!backup) return { error: 'That backup is not available' };
+    const index = this.currentQuestionIndex - 1;
+    const { level, levelName, multiplier, cut, theme } = this.questions[index];
+    this.questions[index] = { ...backup, level, levelName, multiplier, cut, theme };
+    this.backupsUsed.add(id);
+    this.currentQuestionIndex = index;
+    this.pendingCut = null; // proposed again when this round really ends
+    this.lastResult = null;
+    return this.startQuestion();
   }
 
   // Levels come with the questions (levelName, multiplier, cut, theme set by the quiz master).
@@ -133,6 +158,7 @@ class GameEngine {
       score: 0,
       streak: 0,
       totalResponseTime: 0,
+      lastResponseTime: 0, // the latest question only, shown on the projector
       levelCorrect: {}, // level number -> correct answers in that level (for "min correct" cuts)
       answers: { correct: 0, wrong: 0, skipped: 0 }, // over the whole game, for the dashboard
       status: 'active', // active | eliminated | disqualified
@@ -282,7 +308,7 @@ class GameEngine {
     const leaderboard = this.activePlayers().sort(byStanding)
       .map(p => ({ ...publicPlayer(p), prevRank: before.get(p.id).rank, prevScore: p.score }));
     const roundEnd = { round: pc.info.round, levelName: pc.info.name, isFinal: false, cutPending: false, cutLabel: pc.info.cut.label, eliminated: out.length };
-    this.lastResult = { ...this.lastResult, leaderboard, elimination, pendingCut: null, atRisk: [], roundEnd };
+    this.lastResult = { ...this.lastResult, leaderboard, elimination, pendingCut: null, atRisk: [], roundEnd, backupAllowed: false };
     return { success: true, elimination, out, leaderboard, roundEnd };
   }
 
@@ -485,6 +511,7 @@ class GameEngine {
 
     let points = 0;
     let badge = null;
+    let flagged = false;
 
     if (isCorrect) {
       const timeLimitMs = (q.timeLimit || 20) * 1000;
@@ -507,11 +534,14 @@ class GameEngine {
         if (!badge) badge = 'Streak Master';
       }
       if (timeTaken < 2000 && !badge) badge = 'Lightning';
-      if (timeTaken < FAST_CORRECT_MS && (q.timeLimit || 20) >= 10) player.flags.fastCorrect += 1;
+      if (timeTaken < FAST_CORRECT_MS && (q.timeLimit || 20) >= 10) {
+        player.flags.fastCorrect += 1;
+        flagged = true;
+      }
     }
     player.totalResponseTime += timeTaken;
 
-    const record = { participantId: player.id, answer, time: timeTaken, isCorrect, pointsEarned: points, badge };
+    const record = { participantId: player.id, answer, time: timeTaken, isCorrect, pointsEarned: points, badge, flagged };
     this.answers[player.id] = record;
     return { success: true, record, player };
   }
@@ -521,9 +551,21 @@ class GameEngine {
   }
 
   // Returns null if no question is live (guards against the auto-timer and host both ending it).
-  endQuestion() {
-    if (this.state !== 'question') return null;
+  // A cancelled question goes through the same reveal, so a cut or the end of the round still
+  // happens, but nothing about it counts: no points, no skip, no answer time, no streak change.
+  endQuestion({ cancelled = false } = {}) {
+    if (this.state !== 'question' && !(cancelled && this.state === 'video')) return null;
     this.state = 'leaderboard';
+
+    if (cancelled) {
+      for (const a of Object.values(this.answers)) {
+        const p = this.players[a.participantId];
+        if (!p) continue;
+        p.totalResponseTime -= a.time;
+        if (a.flagged) p.flags.fastCorrect -= 1;
+      }
+      this.answers = {};
+    }
 
     const q = this.currentQuestion();
     const level = q.level || 1;
@@ -547,8 +589,10 @@ class GameEngine {
     // answer counts as the full timer for tie-breaks.
     for (const p of this.activePlayers()) {
       this.closeAway(p);
+      if (cancelled) continue;
       const a = this.answers[p.id];
       if (!a) p.totalResponseTime += (q.timeLimit || 20) * 1000;
+      p.lastResponseTime = a ? a.time : (q.timeLimit || 20) * 1000;
       p.answers[!a ? 'skipped' : a.isCorrect ? 'correct' : 'wrong'] += 1;
       if (a?.isCorrect) {
         p.score += a.pointsEarned;
@@ -584,9 +628,11 @@ class GameEngine {
 
     this.lastResult = {
       state: this.state,
-      correctAnswer: q.correctAnswer,
-      note: q.note || null,
-      stats,
+      correctAnswer: cancelled ? null : q.correctAnswer,
+      note: cancelled ? null : q.note || null,
+      stats: cancelled ? {} : stats,
+      cancelled,
+      backupAllowed: cancelled,
       speedStar,
       // Everyone still in, in order (the projector adapts its layout to the count), with their
       // previous rank and score for the animation.
@@ -647,6 +693,8 @@ class GameEngine {
       video: this.state === 'video' ? this.currentQuestion()?.video ?? null : null,
       // The note explains the answer, so like the answer it is sent only at the reveal.
       answerNote: this.state === 'leaderboard' ? this.lastResult?.note ?? null : null,
+      cancelled: this.state === 'leaderboard' && !!this.lastResult?.cancelled,
+      canUseBackup: this.state === 'leaderboard' && !!this.lastResult?.backupAllowed && this.backupList().some(b => !b.used),
       // Never send the correct answer while a question is live.
       currentQuestion: q ? {
         id: q.id,

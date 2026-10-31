@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api, ApiError, fetchObjectUrl } from '../../lib/api';
 import { OPTION_LABELS, Panel } from '../../components/ui';
+import QuestionText from '../../components/QuestionText';
 
 interface Question {
   id: number; level: number; position: number; text: string; type: 'mcq' | 'tf';
   options: string[]; correctAnswer: string; timeLimit: number; points: number; isActive: boolean;
-  note?: string;           // optional, shown on phones after the answer is revealed
+  note?: string;           // optional, shown on phones and the projector after the reveal
+  backup?: boolean;        // held back: the host plays it only in place of a cancelled question
   imageId?: string | null; // picture for "identify this person / object" questions (stored encrypted)
   videoId?: string | null; // video shown while the question is live (stored in the private video bucket)
 }
@@ -27,7 +29,7 @@ const CUT_RULES: { id: Cut['rule']; label: string; unit: string }[] = [
 ];
 
 const blank = (level: number): Draft => ({
-  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', note: '', timeLimit: 20, points: 1000, isActive: true, imageId: null, videoId: null,
+  level, text: '', type: 'mcq', options: ['', '', '', ''], correctAnswer: '', note: '', backup: false, timeLimit: 20, points: 1000, isActive: true, imageId: null, videoId: null,
 });
 
 interface SetSummary { id: string; name: string; ready: boolean; questions: number; active: number; levels: number }
@@ -443,7 +445,7 @@ Type the set name to confirm:`);
             <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
               <span className="display faint" style={{ fontSize: '2rem', width: 36 }}>{i + 1}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ margin: '2px 0 12px', fontWeight: 600, fontSize: '1.05rem', lineHeight: 1.4 }}>{q.text}</p>
+                <div style={{ margin: '2px 0 12px', fontWeight: 600, fontSize: '1.05rem', lineHeight: 1.4 }}><QuestionText text={q.text} /></div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8 }}>
                   {q.options.map((o, oi) => (
                     <div key={oi} data-opt={oi} style={{
@@ -466,6 +468,7 @@ Type the set name to confirm:`);
                   {q.imageId && <span className="pill">🖼 Picture</span>}
                   {q.videoId && <span className="pill">🎬 Video</span>}
                   {q.note && <span className="pill">📝 Note</span>}
+                  {q.backup && <span className="pill pill-dark">Backup</span>}
                   {!q.isActive && <span className="pill pill-warn">Hidden from game</span>}
                 </div>
               </div>
@@ -731,8 +734,9 @@ function Editor({ draft, levels, onSave, onCancel }: {
 
         <div className="form-row" style={{ marginTop: 14 }}>
           <label className="eyebrow" htmlFor="q-text">Question</label>
-          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={500} required
+          <textarea id="q-text" className="field" value={d.text} onChange={e => setD({ ...d, text: e.target.value })} maxLength={1000} required
             placeholder="e.g. Who is this computer scientist?  /  Identify this component" />
+          <span className="dim" style={{ fontSize: '0.78rem', lineHeight: 1.4 }}>Code: put a * before and after it, like *print(1)*. It can span several lines, and spaces at the start of a line are kept.</span>
         </div>
 
         <QuestionImage imageId={d.imageId ?? null} onChange={imageId => setD({ ...d, imageId })} />
@@ -762,10 +766,15 @@ function Editor({ draft, levels, onSave, onCancel }: {
         <div className="form-row" style={{ marginTop: 14 }}>
           <label className="eyebrow" htmlFor="q-note">Answer note (optional)</label>
           <textarea id="q-note" className="field" value={d.note ?? ''} onChange={e => setD({ ...d, note: e.target.value })} maxLength={300}
-            placeholder="Shown on phones after the answer is revealed, e.g. HTTP 404 means the page was not found." />
+            placeholder="Shown on phones and the projector after the reveal, e.g. HTTP 404 means the page was not found." />
         </div>
 
         <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, fontSize: '0.9rem' }}>
+          <input type="checkbox" checked={!!d.backup} onChange={e => setD({ ...d, backup: e.target.checked })} style={{ width: 18, height: 18 }} />
+          Backup question (played only if the host swaps it in for a cancelled question)
+        </label>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, fontSize: '0.9rem' }}>
           <input type="checkbox" checked={d.isActive} onChange={e => setD({ ...d, isActive: e.target.checked })} style={{ width: 18, height: 18 }} />
           Include in the game (untick to keep it as a draft)
         </label>

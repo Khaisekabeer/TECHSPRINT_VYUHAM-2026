@@ -16,6 +16,13 @@ const PHASE_LABEL: Record<string, string> = {
 
 // Scoring options the coordinator sets in the lobby (see gameEngine DEFAULT_RULES). All ticked except
 // round reset = the original rules.
+const VIDEO_STATUS: Record<string, string> = {
+  playing: 'Video playing.',
+  paused: 'Video paused.',
+  ended: 'Video finished.',
+  error: 'The video could not play on the projector.',
+};
+
 const SCORING_RULES = [
   { key: 'multiplier', label: 'Level multipliers', hint: "Each level's points ×. Off: every level counts ×1." },
   { key: 'firstBlood', label: 'First-to-answer bonus', hint: '+20% for the first correct answer on each question.' },
@@ -35,6 +42,8 @@ export default function HostConsole() {
   // The latest cut after a level: who advanced and who was eliminated.
   const [cut, setCut] = useState<any>(null);
   const [pendingCut, setPendingCut] = useState<any>(null);
+  const [backups, setBackups] = useState<{ id: number; text: string; used: boolean }[]>([]);
+  const [videoStatus, setVideoStatus] = useState('');
 
   const timeLeft = useCountdown(
     gameState?.state === 'question' ? gameState.questionEndsAt : null,
@@ -53,12 +62,17 @@ export default function HostConsole() {
 
   useEffect(() => {
     if (!token || !isConnected) return;
-    socket.on('game_state', setGameState);
+    socket.on('game_state', (state: any) => {
+      setGameState(state);
+      if (state.state !== 'video') setVideoStatus('');
+    });
     socket.on('players_list', setPlayers);
     socket.on('answer_count', setAnswerCount);
     socket.on('questions_loaded', setLoaded);
     socket.on('question_result', (r: any) => { if (r?.elimination) setCut(r.elimination); });
     socket.on('cut_pending', setPendingCut);
+    socket.on('backups', setBackups);
+    socket.on('video_status', setVideoStatus);
     socket.on('cut_result', (data: any) => {
       setPendingCut(null);
       if (data?.elimination) setCut(data.elimination);
@@ -77,6 +91,8 @@ export default function HostConsole() {
       socket.off('questions_loaded');
       socket.off('question_result');
       socket.off('cut_pending');
+      socket.off('backups');
+      socket.off('video_status');
       socket.off('cut_result');
       socket.off('game_reset');
     };
@@ -93,6 +109,13 @@ export default function HostConsole() {
   const startGame = () => hostAction('start_game');
   const startQuestion = () => hostAction('start_question');
   const endQuestion = () => hostAction('end_question');
+  const videoControl = (action: 'play' | 'pause' | 'replay') => hostAction('video_control', { action });
+  const cancelQuestion = () => {
+    if (confirm('Cancel this question? Answers are dropped and it does not count for anyone.')) hostAction('cancel_question');
+  };
+  const playBackup = (id: number) => {
+    if (confirm('Play this backup in place of the cancelled question? It starts straight away.')) hostAction('use_backup', { id });
+  };
   const adjustCut = (id: string, keep: boolean) => hostAction('cut_adjust', { playerId: id, keep });
   const confirmCut = () => {
     if (!pendingCut) return;
@@ -296,13 +319,21 @@ export default function HostConsole() {
               )}
               {phase === 'video' && (
                 <>
-                  <button className="btn btn-ghost btn-lg" onClick={startQuestion}>Skip video · start question →</button>
-                  <span className="dim" style={{ fontSize: '0.85rem' }}>The question and timer start by themselves when the video ends on the projector.</span>
+                  <button className="btn btn-heat btn-lg" onClick={startQuestion}>Start question →</button>
+                  {videoStatus === 'paused'
+                    ? <button className="btn btn-ghost btn-lg" onClick={() => videoControl('play')}>Play</button>
+                    : <button className="btn btn-ghost btn-lg" onClick={() => videoControl('pause')} disabled={videoStatus === 'ended'}>Pause</button>}
+                  <button className="btn btn-ghost btn-lg" onClick={() => videoControl('replay')}>Replay</button>
+                  <button className="btn btn-danger btn-lg" onClick={cancelQuestion}>Cancel question</button>
+                  <span className="dim" style={{ fontSize: '0.85rem' }}>
+                    {VIDEO_STATUS[videoStatus] ?? 'Video on the projector.'} The question and timer start only when you press Start question.
+                  </span>
                 </>
               )}
               {phase === 'question' && (
                 <>
                   <button className="btn btn-ghost btn-lg" onClick={endQuestion}>End now &amp; reveal</button>
+                  <button className="btn btn-danger btn-lg" onClick={cancelQuestion}>Cancel question</button>
                   <span className="dim" style={{ fontSize: '0.85rem' }}>Ends automatically when the timer runs out.</span>
                 </>
               )}
@@ -310,6 +341,18 @@ export default function HostConsole() {
                 <span className="dim">Game complete — results saved. Use <strong className="heat">Reset game</strong> to run another round.</span>
               )}
             </div>
+            {gameState?.cancelled && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <div className="eyebrow" style={{ marginBottom: 10 }}>Question cancelled · replace it with a backup</div>
+                {!gameState.canUseBackup && <p className="dim" style={{ margin: 0, fontSize: '0.85rem' }}>No backup available. Carry on with the next move.</p>}
+                {gameState.canUseBackup && backups.filter(b => !b.used).map(b => (
+                  <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: '0.88rem', lineHeight: 1.35, overflowWrap: 'anywhere' }}>{b.text.replace(/\*/g, '')}</span>
+                    <button className="btn btn-ghost btn-sm" onClick={() => playBackup(b.id)}>Play backup</button>
+                  </div>
+                ))}
+              </div>
+            )}
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)', fontSize: '0.88rem', cursor: 'pointer' }}>
               <input
                 type="checkbox"

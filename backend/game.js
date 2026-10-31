@@ -87,15 +87,17 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
   }
 
   // ─── Questions ──────────────────────────────────────────────────────────────
+  const broadcastBackups = () => io.to('host').emit('backups', gameEngine.backupList());
   let questionsLoaded = null; // { count, by, at, bank: { id, name } }
 
   function loadQuestions(questions, byName, bank = null) {
     if (gameEngine.state !== 'lobby') return { error: 'Questions can only be loaded while the game is in the lobby' };
     gameEngine.setQuestions(questions);
-    questionsLoaded = { count: questions.length, by: byName, at: Date.now(), bank };
-    console.log(`${byName} loaded ${questions.length} questions${bank ? ` from "${bank.name}"` : ''} into the game`);
+    questionsLoaded = { count: gameEngine.questions.length, by: byName, at: Date.now(), bank };
+    console.log(`${byName} loaded ${gameEngine.questions.length} questions and ${gameEngine.backups.length} backups${bank ? ` from "${bank.name}"` : ''} into the game`);
     broadcastState();
     io.to('host').to('monitor').emit('questions_loaded', questionsLoaded);
+    broadcastBackups();
     return { success: true, ...questionsLoaded };
   }
 
@@ -107,18 +109,18 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
   function scheduleQuestionEnd() {
     clearTimeout(questionTimer);
     const delay = gameEngine.questionEndsAt - Date.now() + ANSWER_GRACE_MS;
-    questionTimer = setTimeout(endCurrentQuestion, Math.max(0, delay));
+    questionTimer = setTimeout(() => endCurrentQuestion(), Math.max(0, delay));
   }
 
   const sendToPlayer = (p, event, payload) => { if (p.connected && p.socketId) io.to(p.socketId).emit(event, payload); };
 
-  function endCurrentQuestion() {
+  function endCurrentQuestion(cancelled = false) {
     clearTimeout(questionTimer);
     const question = gameEngine.currentQuestion();
     const answers = Object.values(gameEngine.answers);
-    const result = gameEngine.endQuestion();
+    const result = gameEngine.endQuestion({ cancelled });
     if (!result) return; // already ended
-    db.saveQuestionResults(gameEngine.gameId, question?.id, answers, gameEngine.rankedPlayers());
+    if (!cancelled) db.saveQuestionResults(gameEngine.gameId, question?.id, answers, gameEngine.rankedPlayers());
     flushEvents();
     io.emit('question_result', result);
     // End of a level with a cut: the coordinator reviews it before anyone is eliminated.
@@ -242,6 +244,29 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     });
   }
 
+  // After the game moved on: start the timer, log it and tell every screen.
+  function announceStart(callback, result) {
+    if (result.error) return callback(result);
+    // Round reset: phones and screens must show everyone back at 0 as the new round opens.
+    if (gameEngine.state === 'intro' && gameEngine.rules.roundReset) {
+      updateAllPlayers();
+      broadcastPlayers();
+    }
+    if (gameEngine.state === 'question') {
+      scheduleQuestionEnd();
+      const info = gameEngine.levelInfo(gameEngine.currentLevel);
+      logEvent('question_started', { detail: { level: info.name, round: info.round, playersLeft: gameEngine.activePlayers().length } });
+    }
+    if (gameEngine.state === 'podium') {
+      db.finishGame(gameEngine.gameId, gameEngine.rankedPlayers());
+      logEvent('game_finished', { detail: { finalists: gameEngine.activePlayers().length } });
+      flushEvents();
+    }
+    broadcastState();
+    if (gameEngine.state === 'question') broadcastAnswerCount();
+    callback(result);
+  }
+
   const hostActions = {
     // Questions are encrypted; only the quiz master can load them (Admin → Questions).
     load_questions(callback) {
@@ -261,26 +286,33 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     },
 
     start_question(callback) {
-      const result = gameEngine.startQuestion();
+      announceStart(callback, gameEngine.startQuestion());
+    },
+
+    // While a video plays: the projector does what the host presses. Only the host moves on.
+    video_control(callback, data) {
+      if (gameEngine.state !== 'video') return callback({ error: 'No video is playing' });
+      if (!['play', 'pause', 'replay'].includes(data?.action)) return callback({ error: 'Unknown video action' });
+      io.to('bigscreen').emit('video_control', { action: data.action, at: Date.now() });
+      callback({ success: true });
+    },
+
+    // Voids the live question: answers are dropped and nothing counts. See engine.endQuestion.
+    cancel_question(callback, data, staff) {
+      if (!['question', 'video'].includes(gameEngine.state)) return callback({ error: 'No question is live' });
+      logEvent('question_cancelled', { detail: { questionId: gameEngine.currentQuestion()?.id ?? null, by: staff?.displayName ?? null } });
+      endCurrentQuestion(true);
+      flushEvents();
+      callback({ success: true });
+    },
+
+    use_backup(callback, data, staff) {
+      const result = gameEngine.useBackup(data?.id);
       if (result.error) return callback(result);
-      // Round reset: phones and screens must show everyone back at 0 as the new round opens.
-      if (gameEngine.state === 'intro' && gameEngine.rules.roundReset) {
-        updateAllPlayers();
-        broadcastPlayers();
-      }
-      if (gameEngine.state === 'question') {
-        scheduleQuestionEnd();
-        const info = gameEngine.levelInfo(gameEngine.currentLevel);
-        logEvent('question_started', { detail: { level: info.name, round: info.round, playersLeft: gameEngine.activePlayers().length } });
-      }
-      if (gameEngine.state === 'podium') {
-        db.finishGame(gameEngine.gameId, gameEngine.rankedPlayers());
-        logEvent('game_finished', { detail: { finalists: gameEngine.activePlayers().length } });
-        flushEvents();
-      }
-      broadcastState();
-      if (gameEngine.state === 'question') broadcastAnswerCount();
-      callback(result);
+      logEvent('backup_used', { detail: { questionId: data.id, by: staff?.displayName ?? null } });
+      broadcastPendingCut(); // now null
+      broadcastBackups();
+      announceStart(callback, result);
     },
 
     end_question(callback) {
@@ -353,6 +385,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
       io.emit('game_reset');
       broadcastState();
       broadcastPlayers();
+      broadcastBackups();
       callback({ success: true });
     },
   };
@@ -371,6 +404,7 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
         socket.data.token = token;
         socket.emit('questions_loaded', questionsLoaded || { count: 0 });
         socket.emit('cut_pending', gameEngine.pendingCutView());
+        if (role === 'host') socket.emit('backups', gameEngine.backupList());
       } else if (role !== 'bigscreen') {
         return callback({ error: 'Unknown role' });
       }
@@ -523,9 +557,12 @@ function createGame(io, { serverInfo = () => ({ lanAddresses: [], port: null }) 
     });
 
     // The projector says its video has finished (or failed to play): the question goes live.
-    handle(socket, 'video_ended', (callback) => {
+    // The projector reports what its video is doing, so the host can see it. It moves nothing on.
+    handle(socket, 'video_status', (callback, status) => {
       if (!socket.rooms.has('bigscreen') || gameEngine.state !== 'video') return callback({ error: 'No video is playing' });
-      hostActions.start_question(callback);
+      if (!['playing', 'paused', 'ended', 'error'].includes(status)) return callback({ error: 'Unknown status' });
+      io.to('host').emit('video_status', status);
+      callback({ success: true });
     });
 
     // The phone reports when the quiz page is hidden/shown during a question (switching apps or

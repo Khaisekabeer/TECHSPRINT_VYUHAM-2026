@@ -50,8 +50,9 @@ const stub = (file, exports) => {
 stub('store.js', store);
 stub('mail.js', { sendPasswordResetOtp: async (to, otp) => { mailed.push({ to, otp }); } });
 const noWrite = async () => {};
+const savedResults = [];
 stub('db.js', {
-  markGameStarted: noWrite, saveParticipants: noWrite, saveQuestionResults: noWrite, finishGame: noWrite,
+  markGameStarted: noWrite, saveParticipants: noWrite, saveQuestionResults: async (...args) => { savedResults.push(args); }, finishGame: noWrite,
   recordEliminations: noWrite, logEvents: noWrite, flush: noWrite,
 });
 
@@ -274,6 +275,19 @@ describe('answer notes through the admin API', () => {
     assert.equal((await list())[0].note, '');
   });
 
+  test('the backup tick survives saving and reloading, and defaults to off', async () => {
+    const saved = await call('POST', '/questions', { token: tokens.quizmaster, body: body({ backup: true }) });
+    assert.equal((await saved.json()).backup, true);
+    assert.equal((await list())[0].backup, true);
+    await call('PUT', '/questions/1', { token: tokens.quizmaster, body: body() });
+    assert.equal((await list())[0].backup, false);
+  });
+
+  test('a question can hold up to 1000 characters, for code', async () => {
+    const saved = await call('POST', '/questions', { token: tokens.quizmaster, body: body({ text: 'x'.repeat(1500) }) });
+    assert.equal((await saved.json()).text.length, 1000);
+  });
+
   test('a note is cut to 300 characters and is optional', async () => {
     const long = await call('POST', '/questions', { token: tokens.quizmaster, body: body({ note: 'x'.repeat(900) }) });
     assert.equal((await long.json()).note.length, 300);
@@ -419,7 +433,7 @@ describe('secrecy during a game', () => {
     assert.equal(await get(1), 404);
   });
 
-  test('a video plays first: no question, answers or timer until the projector says it ended', async () => {
+  test('a video plays first: no question, answers or timer until the host starts the question', async () => {
     engine.setQuestions([q(1, 1), q(2, 1, { video: { mime: 'video/mp4', url: 'https://storage.example/signed-link' } })]);
     const h = await host();
     const p = await player('Asha');
@@ -439,18 +453,20 @@ describe('secrecy during a game', () => {
     assert.equal(engine.questionEndsAt, last(screen, 'game_state').questionEndsAt, 'timer untouched');
     const startedBefore = engine.questionStartTime;
 
-    // Only a connection on the projector page can report the end.
-    assert.equal((await ask(p, 'video_ended')).error, 'No video is playing');
+    // The projector reports the end to the host, and that moves nothing on.
+    assert.equal((await ask(p, 'video_status', 'ended')).error, 'No video is playing');
+    assert.equal((await ask(screen, 'video_status', 'ended')).success, true);
+    await until(() => last(h, 'video_status') === 'ended', 'host told the video ended');
     assert.equal(engine.state, 'video');
     await new Promise(r => setTimeout(r, 30));
-    assert.equal((await ask(screen, 'video_ended')).success, true);
+    await act(h, 'start_question');
     await until(() => last(p, 'game_state')?.state === 'question', 'question after the video');
     assert.equal(last(p, 'game_state').currentQuestion.text, 'SECRET QUESTION 2');
     assert.equal(last(p, 'game_state').video, null);
     assert.ok(engine.questionStartTime > startedBefore, 'timer starts after the video');
     assert.ok(engine.questionEndsAt - Date.now() > 19000, 'the full timer is left');
     assert.equal((await ask(p, 'submit_answer', 'A')).success, true);
-    assert.equal((await ask(screen, 'video_ended')).error, 'No video is playing');
+    assert.equal((await ask(screen, 'video_status', 'ended')).error, 'No video is playing');
     await act(h, 'end_question');
     await until(() => last(p, 'game_state')?.state === 'leaderboard', 'reveal');
   });
@@ -485,6 +501,166 @@ describe('secrecy during a game', () => {
     await until(() => last(h, 'players_list')?.find(p => p.name === 'Ben')?.answers.skipped === 1, 'host dashboard');
     assert.deepEqual(last(h, 'players_list').find(p => p.name === 'Ben').answers, { correct: 0, wrong: 1, skipped: 1 });
     assert.equal(last(a, 'question_result').leaderboard[0].answers, undefined);
+  });
+});
+
+describe('host controls', () => {
+  const video = { mime: 'video/mp4', url: 'https://storage.example/clip' };
+  const cut = { rule: 'top', value: 1, ties: 'speed' };
+
+  test('the host plays, pauses and replays a video; only the projector hears it', async () => {
+    engine.setQuestions([q(1, 1, { video })]);
+    const h = await host();
+    const p = await player('Asha');
+    const screen = await client();
+    await ask(screen, 'join_role', 'bigscreen');
+    assert.equal((await act(h, 'video_control', { action: 'pause' })).error, 'No video is playing');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    for (const action of ['pause', 'play', 'replay']) {
+      assert.equal((await act(h, 'video_control', { action })).success, true);
+      await until(() => last(screen, 'video_control')?.action === action, action);
+    }
+    assert.equal((await act(h, 'video_control', { action: 'delete' })).error, 'Unknown video action');
+    assert.equal(last(p, 'video_control'), undefined);
+    assert.equal((await act(p, 'video_control', { action: 'pause' })).error, 'Not authorised');
+    assert.equal((await ask(screen, 'video_status', 'hacked')).error, 'Unknown status');
+    assert.equal(engine.state, 'video');
+  });
+
+  test('a cancelled question counts for nothing: no points, skip, time or streak change', async () => {
+    engine.setQuestions([q(1, 1), q(2, 1), q(3, 1)]);
+    const h = await host();
+    const a = await player('Asha');
+    await player('Ben');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await act(h, 'end_question');
+    const asha = Object.values(engine.players).find(p => p.name === 'Asha');
+    const before = { score: asha.score, time: asha.totalResponseTime, streak: asha.streak, answers: { ...asha.answers } };
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    const savedBefore = savedResults.length;
+    assert.equal((await act(h, 'cancel_question')).success, true);
+    assert.deepEqual({ score: asha.score, time: asha.totalResponseTime, streak: asha.streak, answers: asha.answers }, before);
+    assert.equal(savedResults.length, savedBefore, 'no results are stored for it');
+    await until(() => last(a, 'game_state')?.state === 'leaderboard' && last(a, 'game_state').cancelled, 'phones told');
+    const result = last(a, 'question_result');
+    assert.equal(result.cancelled, true);
+    assert.equal(result.correctAnswer, null, 'the answer stays secret, it may be reused');
+    assert.equal(result.note, null);
+    await until(() => last(a, 'my_result')?.myAnswer === null, 'no result on the phone');
+    await act(h, 'start_question');
+    assert.equal(engine.state, 'question');
+    assert.equal(engine.currentQuestion().id, 3);
+    assert.equal((await act(a, 'cancel_question')).error, 'Not authorised');
+    await act(h, 'end_question');
+    assert.equal((await act(h, 'cancel_question')).error, 'No question is live');
+  });
+
+  test('a timer left running by a cancelled question cannot end the next one', async () => {
+    engine.setQuestions([q(1, 1, { timeLimit: 1 }), q(2, 1)]);
+    const h = await host();
+    await player('Asha');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await act(h, 'cancel_question');
+    await act(h, 'start_question');
+    await new Promise(r => setTimeout(r, 1200));
+    assert.equal(engine.state, 'question');
+    assert.equal(engine.currentQuestion().id, 2);
+  });
+
+  test('a video can be cancelled too, and the question never starts', async () => {
+    engine.setQuestions([q(1, 1, { video }), q(2, 1)]);
+    const h = await host();
+    await player('Asha');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    assert.equal(engine.state, 'video');
+    await act(h, 'cancel_question');
+    await act(h, 'start_question');
+    assert.equal(engine.currentQuestion().id, 2);
+  });
+
+  test('cancelling the last question of a round still brings the cut', async () => {
+    engine.setQuestions([q(1, 1, { cut }), q(2, 1, { cut }), q(3, 2)]);
+    const h = await host();
+    const a = await player('Asha');
+    await player('Ben');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await act(h, 'end_question');
+    await act(h, 'start_question');
+    await act(h, 'cancel_question');
+    await until(() => last(h, 'cut_pending'), 'cut waiting');
+    assert.equal((await act(h, 'cut_confirm')).eliminated, 1);
+  });
+
+  test('backups stay out of the game until the host swaps one in for a cancelled question', async () => {
+    engine.setQuestions([q(1, 1, { cut }), q(2, 2), q(9, 1, { backup: true, level: 7, levelName: 'Spare' })]);
+    const h = await host();
+    const a = await player('Asha');
+    const b = await player('Ben');
+    await until(() => last(h, 'backups')?.length === 1, 'host sees the backups');
+    assert.deepEqual(Object.keys(last(h, 'backups')[0]).sort(), ['id', 'text', 'used'], 'no answer in the list');
+    assert.equal(last(a, 'backups'), undefined);
+    await act(h, 'start_game');
+    assert.equal(engine.getState().totalQuestions, 2);
+    assert.equal((await act(h, 'use_backup', { id: 9 })).error, 'A backup can replace a cancelled question only');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await act(h, 'end_question');
+    assert.equal((await act(h, 'use_backup', { id: 9 })).error, 'A backup can replace a cancelled question only');
+    await act(h, 'reset_game');
+    await until(() => last(h, 'game_state')?.state === 'lobby', 'reset');
+  });
+
+  test('a backup keeps the round, number and cut of the question it replaces, and is used once', async () => {
+    engine.setQuestions([q(1, 1, { cut }), q(2, 2), q(9, 2, { backup: true, levelName: 'Spare' }), q(8, 2, { backup: true })]);
+    const h = await host();
+    const a = await player('Asha');
+    const b = await player('Ben');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await act(h, 'cancel_question');
+    await until(() => last(h, 'cut_pending'), 'cut proposed after the cancel');
+    await until(() => last(h, 'game_state')?.canUseBackup, 'backup offered');
+    assert.equal((await act(h, 'use_backup', { id: 77 })).error, 'That backup is not available');
+    assert.equal((await act(h, 'use_backup', { id: 9 })).success, true);
+    await until(() => last(a, 'game_state')?.state === 'question', 'backup is live');
+    const live = last(a, 'game_state');
+    assert.equal(live.currentQuestion.id, 9);
+    assert.equal(live.currentQuestionIndex, 0);
+    assert.equal(live.totalQuestions, 2);
+    assert.equal(live.levelConfig.name, engine.levelInfo(1).name);
+    assert.equal(last(h, 'cut_pending'), null, 'the cut waits for the real end of the round');
+    assert.equal(last(h, 'backups').find(x => x.id === 9).used, true);
+    await ask(a, 'submit_answer', 'A');
+    await ask(b, 'submit_answer', 'B');
+    await act(h, 'end_question');
+    await until(() => last(h, 'cut_pending'), 'cut proposed again');
+    assert.equal((await act(h, 'cut_confirm')).eliminated, 1);
+    assert.equal(Object.values(engine.players).find(p => p.name === 'Asha').status, 'active');
+    await act(h, 'reset_game');
+    assert.equal(engine.questions.map(x => x.id).join(), '1,2', 'the set is whole again after a reset');
+    assert.equal(engine.backupList().every(x => !x.used), true);
+  });
+
+  test('once the cut is confirmed the cancelled question can no longer be replaced', async () => {
+    engine.setQuestions([q(1, 1, { cut }), q(2, 2), q(9, 1, { backup: true })]);
+    const h = await host();
+    const a = await player('Asha');
+    await player('Ben');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await act(h, 'cancel_question');
+    await until(() => last(h, 'cut_pending'), 'cut');
+    await act(h, 'cut_confirm');
+    assert.equal((await act(h, 'use_backup', { id: 9 })).error, 'A backup can replace a cancelled question only');
   });
 });
 
@@ -723,6 +899,28 @@ describe('full games', () => {
     const board = last(screen, 'question_result').leaderboard;
     assert.ok(board.find(p => p.name === 'Asha').time < 3000);
     assert.equal(board.find(p => p.name === 'Ben').time, 20000);
+  });
+
+  test('the leaderboard also carries each player\'s time on the latest question only', async () => {
+    engine.setQuestions([q(1, 1), q(2, 1), q(3, 1)]);
+    const h = await host();
+    const a = await player('Asha');
+    const b = await player('Ben');
+    const screen = await client();
+    await ask(screen, 'join_role', 'bigscreen');
+    await act(h, 'start_game');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await act(h, 'end_question'); // Ben skips
+    await until(() => last(screen, 'question_result'), 'first reveal');
+    await act(h, 'start_question');
+    await ask(a, 'submit_answer', 'A');
+    await ask(b, 'submit_answer', 'A');
+    await act(h, 'end_question');
+    await until(() => last(screen, 'question_result')?.questionIndex === 1, 'second reveal');
+    const ben = last(screen, 'question_result').leaderboard.find(p => p.name === 'Ben');
+    assert.ok(ben.lastTime < 3000, 'only the latest question');
+    assert.ok(ben.time >= 20000, 'the tie-break total keeps the skip');
   });
 
   test('a dropped player is scored as skipped and the game carries on', async () => {

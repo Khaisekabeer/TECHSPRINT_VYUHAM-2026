@@ -44,7 +44,7 @@ const str = (v, max = 200) => (typeof v === 'string' ? v.trim().slice(0, max) : 
 function validateQuestion(body) {
   const level = Number(body.level);
   const type = body.type === 'tf' ? 'tf' : 'mcq';
-  const text = str(body.text, 500);
+  const text = str(body.text, 1000);
   const options = type === 'tf'
     ? ['True', 'False']
     : (Array.isArray(body.options) ? body.options.map(o => str(o, 160)).filter(Boolean) : []);
@@ -66,7 +66,7 @@ function validateQuestion(body) {
   // Optional video, uploaded separately (stored in the private video bucket).
   const videoId = body.videoId == null || body.videoId === '' ? null : String(body.videoId);
   check(videoId === null || UUID_RE.test(videoId), 'Invalid video');
-  return { level, type, text, options, correctAnswer, note, timeLimit, points, imageId, videoId, isActive: body.isActive !== false };
+  return { level, type, text, options, correctAnswer, note, backup: body.backup === true, timeLimit, points, imageId, videoId, isActive: body.isActive !== false };
 }
 
 /**
@@ -539,7 +539,7 @@ module.exports = function createApi(hooks) {
   const qm = [requireStaff(QM), requireVault];
   const dekOf = req => req.session.dek;
   const bankOf = req => req.session.bankId;
-  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId, videoId: q.videoId, note: q.note });
+  const sealContent = (req, q) => vault.encryptQuestion(dekOf(req), { text: q.text, options: q.options, correctAnswer: q.correctAnswer, imageId: q.imageId, videoId: q.videoId, note: q.note, backup: q.backup });
   const changed = req => hooks.onQuestionsChanged(dekOf(req), bankOf(req));
   // The image or video a stored question points to (inside its encrypted content).
   const mediaOf = async (req, id) => {

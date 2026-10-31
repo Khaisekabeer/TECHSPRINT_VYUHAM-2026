@@ -593,6 +593,36 @@ textarea.field { resize: vertical; min-height: 96px; line-height: 1.45; }
   }
 }
 
+/* ─── Question text: code from the quiz master keeps its indentation ─────────── */
+.q-prose { display: block; white-space: pre-line; }
+.q-code {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0.45em auto;
+  padding: 0.7em 1em;
+  overflow: hidden;
+  background: var(--bone);
+  color: var(--ink-0);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: 0.6em;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+.q-inline-code {
+  padding: 0.05em 0.3em;
+  background: var(--ink-3);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  letter-spacing: 0;
+}
+
 /* ─── Scrollbar ────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
